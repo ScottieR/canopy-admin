@@ -28,6 +28,8 @@ const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
+const PRICING_FILE = path.join(DATA_DIR, 'pricing.json');
+const MODELS_FILE = path.join(DATA_DIR, 'models.json');
 
 app.use(cors());
 app.use(express.json());
@@ -160,10 +162,109 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
   }
 });
 
+// --- DYNAMIC BOOK MODERATION ---
+app.post('/api/agents/add-suggestion', async (req, res) => {
+  const { role, bookTitle } = req.body;
+  if (!role || !bookTitle) return res.status(400).json({ error: "Missing role or bookTitle" });
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY missing" });
+
+  const checkPrompt = `You are a strict content safety moderator for a professional AI workspace product.
+The user is attempting to add a book title to a public library of suggestions.
+Book title to evaluate: "${bookTitle}"
+Target agent role context: "${role}"
+
+Does this title contain obvious explicit content, racism, sexism, excessive violence, extreme political ideology (extremism), or obvious hate speech designed to be offensive? Note: standard timeless literature is usually acceptable unless explicitly controversial or notoriously banned material without merit.
+Reply ONLY with the exact word "YES" if it is controversial/offensive/unsafe.
+Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: checkPrompt }] }],
+        generationConfig: { temperature: 0.1 }
+      })
+    });
+
+    if (!response.ok) return res.status(500).json({ error: "Gemini API failed" });
+    const data = await response.json();
+    let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
+
+    if (result && result.includes("YES")) {
+       return res.status(403).json({ error: "Book rejected as unsafe" });
+    }
+
+    if (fs.existsSync(AGENTS_FILE)) {
+      let agents = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
+      if (agents[role]) {
+        if (!agents[role].library) agents[role].library = [];
+        
+        // Deduplicate
+        const existing = agents[role].library.find(b => b.title.toLowerCase() === bookTitle.toLowerCase());
+        if (!existing) {
+          agents[role].library.unshift({ title: bookTitle, author: "Unknown", mode: "Cultural Reference" });
+          fs.writeFileSync(AGENTS_FILE, JSON.stringify(agents, null, 2), "utf8");
+        }
+      }
+    }
+    return res.json({ success: true, message: "Added successfully" });
+  } catch (e) {
+    console.error("Book moderation failed:", e);
+    return res.status(500).json({ error: "Moderation connection failed" });
+  }
+});
 createJsonApi('/api/agents', AGENTS_FILE);
 createJsonApi('/api/library', LIBRARY_FILE);
 createJsonApi('/api/settings', SETTINGS_FILE);
 createJsonApi('/api/stats', STATS_FILE);
+createJsonApi('/api/pricing', PRICING_FILE);
+createJsonApi('/api/models', MODELS_FILE);
+
+// --- BACKGROUND PRICING CRON ---
+async function syncPricing() {
+  console.log("Syncing LLM pricing from LiteLLM...");
+  try {
+    const res = await fetch("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json");
+    if (!res.ok) throw new Error("Failed to fetch LiteLLM pricing");
+    const data = await res.json();
+    
+    // Ensure backwards compatibility with simple pricing map for older rust backends
+    const mappedPricing = {
+      "claude-3-5-sonnet": { in: (data["claude-3-5-sonnet-20240620"]?.input_cost_per_token || 0.000003) * 1000000, out: (data["claude-3-5-sonnet-20240620"]?.output_cost_per_token || 0.000015) * 1000000 },
+      "gpt-4o-mini": { in: (data["gpt-4o-mini"]?.input_cost_per_token || 0.00000015) * 1000000, out: (data["gpt-4o-mini"]?.output_cost_per_token || 0.0000006) * 1000000 },
+      "gpt-4o": { in: (data["gpt-4o"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["gpt-4o"]?.output_cost_per_token || 0.000015) * 1000000 },
+      "gemini-1.5-pro": { in: (data["gemini-1.5-pro"]?.input_cost_per_token || 0.0000035) * 1000000, out: (data["gemini-1.5-pro"]?.output_cost_per_token || 0.0000105) * 1000000 },
+      "gemini-1.5-flash": { in: (data["gemini-1.5-flash"]?.input_cost_per_token || 0.00000035) * 1000000, out: (data["gemini-1.5-flash"]?.output_cost_per_token || 0.00000105) * 1000000 }
+    };
+    fs.writeFileSync(PRICING_FILE, JSON.stringify(mappedPricing, null, 2), "utf8");
+
+    // NEW: Comprehensive Model UI & Strategy structure compiled here from Oracle
+    const modelStrategies = {
+      models: [
+        { id: "gpt-4o-mini", provider: "OpenAI", name: "GPT-4o-mini", description: "Fast & Light", costIn: mappedPricing["gpt-4o-mini"].in, costOut: mappedPricing["gpt-4o-mini"].out, strategy: "light" },
+        { id: "claude-3-5-sonnet", provider: "Anthropic", name: "Claude 3.5 Sonnet", description: "Powerful & Deep", costIn: mappedPricing["claude-3-5-sonnet"].in, costOut: mappedPricing["claude-3-5-sonnet"].out, strategy: "heavy" },
+        { id: "gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Versatile & Robust", costIn: mappedPricing["gpt-4o"].in, costOut: mappedPricing["gpt-4o"].out, strategy: "heavy" },
+        { id: "gemini-1.5-pro", provider: "Google Gemini", name: "Gemini 1.5 Pro", description: "High Context", costIn: mappedPricing["gemini-1.5-pro"].in, costOut: mappedPricing["gemini-1.5-pro"].out, strategy: "heavy" },
+        { id: "gemini-1.5-flash", provider: "Google Gemini", name: "Gemini 1.5 Flash", description: "Rapid Inference", costIn: mappedPricing["gemini-1.5-flash"].in, costOut: mappedPricing["gemini-1.5-flash"].out, strategy: "light" }
+      ],
+      strategies: {
+        heavy: ["Researcher", "Coder", "Architect", "Financial", "Accountant", "Business Strategist", "Investment Manager", "Strategist", "Engineer", "Data Analyst"],
+        defaultHeavyModel: "claude-3-5-sonnet",
+        defaultLightModel: "gpt-4o-mini"
+      }
+    };
+    fs.writeFileSync(MODELS_FILE, JSON.stringify(modelStrategies, null, 2), "utf8");
+    
+    console.log("Successfully synced local pricing.json and models.json oracles!");
+  } catch(e) {
+    console.error("Pricing sync failed:", e);
+  }
+}
+
+// Sync on boot, then every 24 hours
+syncPricing();
+setInterval(syncPricing, 24 * 60 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`Admin Server API running on http://localhost:${PORT}`);
