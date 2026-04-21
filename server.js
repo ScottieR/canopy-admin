@@ -144,8 +144,10 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 
     const parsedParams = JSON.parse(textResult);
 
+    const aestheticPrompt = `${prompt}, visually matching a cute isometric pastel 3D style monument valley game, vivid colors ${parsedParams.color}, ${parsedParams.habitatLabel}`;
+    
     res.json({
-      compiledImageUrl: `https://placehold.co/600x400/${(parsedParams.robeColor || '#218380').replace('#', '')}/FFFFFF.png?text=Generated+Concept:+${encodeURIComponent(prompt.substring(0, 15))}`,
+      compiledImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(aestheticPrompt)}?width=600&height=400&nologo=true`,
       dynamicParams: {
         color: parsedParams.color || "#F5E6D8",
         robeColor: parsedParams.robeColor || "#888",
@@ -279,8 +281,9 @@ async function syncPricing() {
       "claude-4-6-sonnet": { in: (data["claude-3-5-sonnet-20240620"]?.input_cost_per_token || 0.000003) * 1000000, out: (data["claude-3-5-sonnet-20240620"]?.output_cost_per_token || 0.000015) * 1000000 },
       "gpt-4o-mini": { in: (data["gpt-4o-mini"]?.input_cost_per_token || 0.00000015) * 1000000, out: (data["gpt-4o-mini"]?.output_cost_per_token || 0.0000006) * 1000000 },
       "gpt-4o": { in: (data["gpt-4o"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["gpt-4o"]?.output_cost_per_token || 0.000015) * 1000000 },
-      "gemini-1.5-pro": { in: (data["gemini-1.5-pro"]?.input_cost_per_token || 0.0000035) * 1000000, out: (data["gemini-1.5-pro"]?.output_cost_per_token || 0.0000105) * 1000000 },
-      "gemini-1.5-flash": { in: (data["gemini-1.5-flash"]?.input_cost_per_token || 0.00000035) * 1000000, out: (data["gemini-1.5-flash"]?.output_cost_per_token || 0.00000105) * 1000000 }
+      "grok-beta": { in: (data["grok-beta"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["grok-beta"]?.output_cost_per_token || 0.000015) * 1000000 },
+      "gemini-3.1-pro": { in: (data["gemini-3.1-pro"]?.input_cost_per_token || 0.0000035) * 1000000, out: (data["gemini-3.1-pro"]?.output_cost_per_token || 0.0000105) * 1000000 },
+      "gemini-3.1-flash": { in: (data["gemini-3.1-flash"]?.input_cost_per_token || 0.00000035) * 1000000, out: (data["gemini-3.1-flash"]?.output_cost_per_token || 0.00000105) * 1000000 }
     };
     fs.writeFileSync(PRICING_FILE, JSON.stringify(mappedPricing, null, 2), "utf8");
 
@@ -290,8 +293,9 @@ async function syncPricing() {
         { id: "gpt-4o-mini", provider: "OpenAI", name: "GPT-4o-mini", description: "Fast & Light", costIn: mappedPricing["gpt-4o-mini"].in, costOut: mappedPricing["gpt-4o-mini"].out, strategy: "light" },
         { id: "claude-4-6-sonnet", provider: "Anthropic", name: "Claude 4.6 Sonnet", description: "Powerful & Deep", costIn: mappedPricing["claude-4-6-sonnet"].in, costOut: mappedPricing["claude-4-6-sonnet"].out, strategy: "heavy" },
         { id: "gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Versatile & Robust", costIn: mappedPricing["gpt-4o"].in, costOut: mappedPricing["gpt-4o"].out, strategy: "heavy" },
-        { id: "gemini-1.5-pro", provider: "Google Gemini", name: "Gemini 1.5 Pro", description: "High Context", costIn: mappedPricing["gemini-1.5-pro"].in, costOut: mappedPricing["gemini-1.5-pro"].out, strategy: "heavy" },
-        { id: "gemini-1.5-flash", provider: "Google Gemini", name: "Gemini 1.5 Flash", description: "Rapid Inference", costIn: mappedPricing["gemini-1.5-flash"].in, costOut: mappedPricing["gemini-1.5-flash"].out, strategy: "light" }
+        { id: "grok-beta", provider: "Grok", name: "Grok Beta", description: "Real-time & Edgy", costIn: mappedPricing["grok-beta"].in, costOut: mappedPricing["grok-beta"].out, strategy: "heavy" },
+        { id: "gemini-3.1-pro", provider: "Google Gemini", name: "Gemini 3.1 Pro", description: "High Context", costIn: mappedPricing["gemini-3.1-pro"].in, costOut: mappedPricing["gemini-3.1-pro"].out, strategy: "heavy" },
+        { id: "gemini-3.1-flash", provider: "Google Gemini", name: "Gemini 3.1 Flash", description: "Rapid Inference", costIn: mappedPricing["gemini-3.1-flash"].in, costOut: mappedPricing["gemini-3.1-flash"].out, strategy: "light" }
       ],
       strategies: {
         heavy: ["Researcher", "Coder", "Architect", "Financial", "Accountant", "Business Strategist", "Investment Manager", "Strategist", "Engineer", "Data Analyst"],
