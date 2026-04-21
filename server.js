@@ -14,7 +14,7 @@ try {
   if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const keyMatch = envContent.match(/^GEMINI_API_KEY=(.+)$/m);
-    if (keyMatch) GEMINI_API_KEY = keyMatch[1].trim();
+    if (keyMatch) GEMINI_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
   }
 } catch (e) {
   console.warn("Could not load .env file:", e);
@@ -145,7 +145,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
     const parsedParams = JSON.parse(textResult);
 
     res.json({
-      compiledImageUrl: `https://placehold.co/600x400/${(parsedParams.robeColor || '#218380').replace('#', '')}/FFFFFF?text=Generated+Concept:+${encodeURIComponent(prompt.substring(0, 15))}`,
+      compiledImageUrl: `https://placehold.co/600x400/${(parsedParams.robeColor || '#218380').replace('#', '')}/FFFFFF.png?text=Generated+Concept:+${encodeURIComponent(prompt.substring(0, 15))}`,
       dynamicParams: {
         color: parsedParams.color || "#F5E6D8",
         robeColor: parsedParams.robeColor || "#888",
@@ -214,6 +214,51 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
     return res.status(500).json({ error: "Moderation connection failed" });
   }
 });
+
+// --- DYNAMIC COMPANION TELEMETRY ---
+let latestTelemetryPayload = "";
+app.post('/api/telemetry/target', (req, res) => {
+   if (req.body && req.body.domText) {
+      latestTelemetryPayload = req.body.domText;
+   }
+   res.json({ success: true });
+});
+
+app.post('/api/analyze-screen', async (req, res) => {
+   if (!GEMINI_API_KEY) return res.status(500).json({ error: "Missing config" });
+   if (!latestTelemetryPayload) return res.json({ instruction: "Waiting for the browser to load..." });
+
+   const checkPrompt = `You are a helpful software setup companion UI. The user is currently configuring their Slack App Integration.
+Based on the raw text scraped from their current screen (below), determine EXACTLY what they need to do next. 
+If they are on the Workspace Selection screen, tell them to select a workspace. 
+If they are on the manifest review screen, tell them to hit 'Next' or 'Create'.
+If they are on the App-Level Tokens screen, explain how to generate it with the connections:write scope.
+If they are on the Bot Token screen (Install App), explain how to grab the xoxb- token.
+
+Rules:
+- Give ONE single instruction block. Keep it under 2 sentences. No markdown formatting.
+
+Raw Screen Text:
+"""
+${latestTelemetryPayload.substring(0, 8000)}
+"""`;
+
+   try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: checkPrompt }] }],
+        generationConfig: { temperature: 0.1 }
+      })
+    });
+    const data = await response.json();
+    let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Analyzing screen...";
+    return res.json({ instruction: result });
+   } catch (e) {
+      return res.json({ instruction: "Connection temporarily lost." });
+   }
+});
 createJsonApi('/api/agents', AGENTS_FILE);
 createJsonApi('/api/library', LIBRARY_FILE);
 createJsonApi('/api/settings', SETTINGS_FILE);
@@ -231,7 +276,7 @@ async function syncPricing() {
     
     // Ensure backwards compatibility with simple pricing map for older rust backends
     const mappedPricing = {
-      "claude-3-5-sonnet": { in: (data["claude-3-5-sonnet-20240620"]?.input_cost_per_token || 0.000003) * 1000000, out: (data["claude-3-5-sonnet-20240620"]?.output_cost_per_token || 0.000015) * 1000000 },
+      "claude-4-6-sonnet": { in: (data["claude-3-5-sonnet-20240620"]?.input_cost_per_token || 0.000003) * 1000000, out: (data["claude-3-5-sonnet-20240620"]?.output_cost_per_token || 0.000015) * 1000000 },
       "gpt-4o-mini": { in: (data["gpt-4o-mini"]?.input_cost_per_token || 0.00000015) * 1000000, out: (data["gpt-4o-mini"]?.output_cost_per_token || 0.0000006) * 1000000 },
       "gpt-4o": { in: (data["gpt-4o"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["gpt-4o"]?.output_cost_per_token || 0.000015) * 1000000 },
       "gemini-1.5-pro": { in: (data["gemini-1.5-pro"]?.input_cost_per_token || 0.0000035) * 1000000, out: (data["gemini-1.5-pro"]?.output_cost_per_token || 0.0000105) * 1000000 },
@@ -243,14 +288,14 @@ async function syncPricing() {
     const modelStrategies = {
       models: [
         { id: "gpt-4o-mini", provider: "OpenAI", name: "GPT-4o-mini", description: "Fast & Light", costIn: mappedPricing["gpt-4o-mini"].in, costOut: mappedPricing["gpt-4o-mini"].out, strategy: "light" },
-        { id: "claude-3-5-sonnet", provider: "Anthropic", name: "Claude 3.5 Sonnet", description: "Powerful & Deep", costIn: mappedPricing["claude-3-5-sonnet"].in, costOut: mappedPricing["claude-3-5-sonnet"].out, strategy: "heavy" },
+        { id: "claude-4-6-sonnet", provider: "Anthropic", name: "Claude 4.6 Sonnet", description: "Powerful & Deep", costIn: mappedPricing["claude-4-6-sonnet"].in, costOut: mappedPricing["claude-4-6-sonnet"].out, strategy: "heavy" },
         { id: "gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Versatile & Robust", costIn: mappedPricing["gpt-4o"].in, costOut: mappedPricing["gpt-4o"].out, strategy: "heavy" },
         { id: "gemini-1.5-pro", provider: "Google Gemini", name: "Gemini 1.5 Pro", description: "High Context", costIn: mappedPricing["gemini-1.5-pro"].in, costOut: mappedPricing["gemini-1.5-pro"].out, strategy: "heavy" },
         { id: "gemini-1.5-flash", provider: "Google Gemini", name: "Gemini 1.5 Flash", description: "Rapid Inference", costIn: mappedPricing["gemini-1.5-flash"].in, costOut: mappedPricing["gemini-1.5-flash"].out, strategy: "light" }
       ],
       strategies: {
         heavy: ["Researcher", "Coder", "Architect", "Financial", "Accountant", "Business Strategist", "Investment Manager", "Strategist", "Engineer", "Data Analyst"],
-        defaultHeavyModel: "claude-3-5-sonnet",
+        defaultHeavyModel: "claude-4-6-sonnet",
         defaultLightModel: "gpt-4o-mini"
       }
     };
