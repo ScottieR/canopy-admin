@@ -30,10 +30,30 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 const PRICING_FILE = path.join(DATA_DIR, 'pricing.json');
 const MODELS_FILE = path.join(DATA_DIR, 'models.json');
+const ACCESSORIES_FILE = path.join(DATA_DIR, 'accessories.json');
+
+// --- Seed Default Accessories if missing ---
+if (!fs.existsSync(ACCESSORIES_FILE)) {
+  const defaultAccs = { items: {}, defaults: {} };
+  for(let s=1; s<=6; s++) {
+    for(let i=1; i<=25; i++) {
+       const key = `/accessories/accessories_set_${s}_item_${String(i).padStart(2, '0')}.png`;
+       defaultAccs.items[key] = { isVisible: true };
+    }
+  }
+  // Base Defaults
+  defaultAccs.defaults = {
+    "Coder": ["/accessories/accessories_set_6_item_22.png", "/accessories/accessories_set_1_item_04.png"],
+    "Researcher": ["/accessories/accessories_set_4_item_11.png"],
+    "Accountant": ["/accessories/accessories_set_2_item_18.png"]
+  };
+  fs.writeFileSync(ACCESSORIES_FILE, JSON.stringify(defaultAccs, null, 2), 'utf8');
+}
 
 app.use(cors());
 app.use(express.json());
 app.use('/agents', express.static(path.join(__dirname, '../canopy/public/agents')));
+app.use('/accessories', express.static(path.join(__dirname, '../canopy/public/accessories')));
 
 // Helper to create CRUD routes for a given file
 function createJsonApi(routePath, filePath) {
@@ -267,6 +287,7 @@ createJsonApi('/api/settings', SETTINGS_FILE);
 createJsonApi('/api/stats', STATS_FILE);
 createJsonApi('/api/pricing', PRICING_FILE);
 createJsonApi('/api/models', MODELS_FILE);
+createJsonApi('/api/accessories', ACCESSORIES_FILE);
 
 // --- BACKGROUND PRICING CRON ---
 async function syncPricing() {

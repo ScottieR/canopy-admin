@@ -1,15 +1,17 @@
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, Shirt } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Dashboard from './pages/Dashboard';
 import AgentManager from './pages/AgentManager';
 import Settings from './pages/Settings';
 import LibraryManager from './pages/LibraryManager';
+import AccessoryManager from './pages/AccessoryManager';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/agents', label: 'Agent Templates', icon: Users },
   { path: '/library', label: 'Book Library', icon: BookOpen },
+  { path: '/accessories', label: 'Cosmetics Catalog', icon: Shirt },
   { path: '/settings', label: 'Platform Settings', icon: SettingsIcon },
 ];
 
@@ -79,6 +81,7 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/agents" element={<AgentManager />} />
             <Route path="/library" element={<LibraryManager />} />
+            <Route path="/accessories" element={<AccessoryManager />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>
