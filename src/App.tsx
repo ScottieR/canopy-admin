@@ -25,9 +25,7 @@ export default function App() {
           className="w-64 border-r border-outline-variant/20 bg-surface/50 backdrop-blur-xl flex flex-col h-full shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)]"
         >
           <div className="h-20 flex items-center px-6 border-b border-outline-variant/20">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-[#4A9E96] flex items-center justify-center mr-3 shadow-lg shadow-primary/20">
-            <span className="font-bold text-white text-lg">C</span>
-          </div>
+          <img src="/app-icon.png" alt="Canopy Logo" className="w-9 h-9 rounded-xl object-cover mr-3 shadow-lg shadow-primary/20" />
           <h1 className="font-bold text-xl tracking-tight text-textMain">Canopy Admin</h1>
         </div>
         
