@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Save, Eye, EyeOff } from 'lucide-react';
+import { Save, EyeOff } from 'lucide-react';
 
 interface AccessoriesData {
   items: Record<string, { isVisible: boolean }>;
