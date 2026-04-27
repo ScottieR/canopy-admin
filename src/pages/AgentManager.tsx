@@ -301,14 +301,30 @@ export default function AgentManager() {
                         <input type="text" value={editingAgent?.habitatLabel || ''} onChange={(e) => setEditingAgent({ ...editingAgent, habitatLabel: e.target.value })} className="w-full bg-white border border-border rounded-lg px-3 py-2 text-xs font-medium focus:outline-none" />
                       </div>
                       
-                      <div className="flex items-center justify-between bg-primary/5 border border-primary/20 p-4 rounded-xl">
-                        <div>
-                          <h4 className="text-textMain font-bold text-sm">Onboarding</h4>
-                          <p className="text-textMuted text-xs font-medium mt-1">Suggest role.</p>
+                      <div className="flex gap-4">
+                        <div className="flex-1 flex items-center justify-between bg-primary/5 border border-primary/20 p-4 rounded-xl">
+                          <div>
+                            <h4 className="text-textMain font-bold text-sm">Onboarding</h4>
+                            <p className="text-textMuted text-xs font-medium mt-1">Suggest role.</p>
+                          </div>
+                          <button onClick={() => setEditingAgent({ ...editingAgent, suggest_in_onboarding: !editingAgent.suggest_in_onboarding })} className={`transition-colors ${editingAgent?.suggest_in_onboarding ? 'text-primary' : 'text-textMuted'}`}>
+                            {editingAgent?.suggest_in_onboarding ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
+                          </button>
                         </div>
-                        <button onClick={() => setEditingAgent({ ...editingAgent, suggest_in_onboarding: !editingAgent.suggest_in_onboarding })} className={`transition-colors ${editingAgent?.suggest_in_onboarding ? 'text-primary' : 'text-textMuted'}`}>
-                          {editingAgent?.suggest_in_onboarding ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
-                        </button>
+                        
+                        <div className="w-1/3 flex items-center justify-between bg-primary/5 border border-primary/20 p-4 rounded-xl">
+                          <div>
+                            <h4 className="text-textMain font-bold text-sm">Order</h4>
+                            <p className="text-textMuted text-xs font-medium mt-1">Display priority.</p>
+                          </div>
+                          <input 
+                            type="number" 
+                            min="1"
+                            value={editingAgent?.manual_order ?? ''} 
+                            onChange={(e) => setEditingAgent({ ...editingAgent, manual_order: e.target.value ? parseInt(e.target.value, 10) : undefined })}
+                            className="w-16 bg-white border border-border rounded-lg px-2 py-1 text-sm font-bold text-center focus:outline-none" 
+                          />
+                        </div>
                       </div>
                     </div>
                   )}

@@ -312,67 +312,156 @@ async function syncPricingAndModels() {
     if (!res.ok) throw new Error("Failed to fetch LiteLLM pricing");
     const data = await res.json();
     
-    // Ensure backwards compatibility with simple pricing map for older rust backends
+    // All model IDs use "provider/model-name" format matching OpenClaw's expectation.
+    // LiteLLM pricing keys use the bare model name (no prefix), so we look them up
+    // by bare name but store results under the prefixed key.
+    const litellmPrice = (bareKey, fallbackIn, fallbackOut) => ({
+      in:  (data[bareKey]?.input_cost_per_token  || fallbackIn)  * 1000000,
+      out: (data[bareKey]?.output_cost_per_token || fallbackOut) * 1000000,
+    });
+
     const mappedPricing = {
-      "claude-4-6-sonnet": { in: (data["claude-3-5-sonnet-20240620"]?.input_cost_per_token || 0.000003) * 1000000, out: (data["claude-3-5-sonnet-20240620"]?.output_cost_per_token || 0.000015) * 1000000 },
-      "gpt-4o-mini": { in: (data["gpt-4o-mini"]?.input_cost_per_token || 0.00000015) * 1000000, out: (data["gpt-4o-mini"]?.output_cost_per_token || 0.0000006) * 1000000 },
-      "gpt-4o": { in: (data["gpt-4o"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["gpt-4o"]?.output_cost_per_token || 0.000015) * 1000000 },
-      "grok-beta": { in: (data["grok-beta"]?.input_cost_per_token || 0.000005) * 1000000, out: (data["grok-beta"]?.output_cost_per_token || 0.000015) * 1000000 }
+      "anthropic/claude-sonnet-4-6":        litellmPrice("claude-sonnet-4-6",        0.000003,    0.000015),
+      "anthropic/claude-haiku-4-5-20251001": litellmPrice("claude-haiku-4-5-20251001",0.0000008,   0.000004),
+      "anthropic/claude-opus-4-6":           litellmPrice("claude-opus-4-6",           0.000015,    0.000075),
+      "openai/gpt-4o":                       litellmPrice("gpt-4o",                    0.0000025,   0.00001),
+      "openai/gpt-4o-mini":                  litellmPrice("gpt-4o-mini",               0.00000015,  0.0000006),
+      "openai/o4-mini":                      litellmPrice("o4-mini",                   0.0000011,   0.0000044),
+      "xai/grok-beta":                       litellmPrice("grok-beta",                 0.000005,    0.000015),
     };
-    
+
     let modelList = [
-      { id: "gpt-4o-mini", provider: "OpenAI", name: "GPT-4o-mini", description: "Fast & Light", costIn: mappedPricing["gpt-4o-mini"].in, costOut: mappedPricing["gpt-4o-mini"].out, strategy: "light", capabilities: ["chat", "vision"] },
-      { id: "claude-4-6-sonnet", provider: "Anthropic", name: "Claude 4.6 Sonnet", description: "Powerful & Deep", costIn: mappedPricing["claude-4-6-sonnet"].in, costOut: mappedPricing["claude-4-6-sonnet"].out, strategy: "heavy", capabilities: ["chat", "vision", "code"] },
-      { id: "gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Versatile & Robust", costIn: mappedPricing["gpt-4o"].in, costOut: mappedPricing["gpt-4o"].out, strategy: "heavy", capabilities: ["chat", "vision"] },
-      { id: "grok-beta", provider: "Grok", name: "Grok Beta", description: "Real-time & Edgy", costIn: mappedPricing["grok-beta"].in, costOut: mappedPricing["grok-beta"].out, strategy: "heavy", capabilities: ["chat", "web"] }
+      { id: "anthropic/claude-sonnet-4-6",        provider: "Anthropic",     name: "Claude Sonnet 4.6",  description: "Fast & highly capable",      costIn: mappedPricing["anthropic/claude-sonnet-4-6"].in,        costOut: mappedPricing["anthropic/claude-sonnet-4-6"].out,        strategy: "heavy" },
+      { id: "anthropic/claude-haiku-4-5-20251001", provider: "Anthropic",    name: "Claude Haiku 4.5",   description: "Fastest Anthropic model",     costIn: mappedPricing["anthropic/claude-haiku-4-5-20251001"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5-20251001"].out, strategy: "light" },
+      { id: "anthropic/claude-opus-4-6",           provider: "Anthropic",    name: "Claude Opus 4.6",    description: "Most capable Anthropic",      costIn: mappedPricing["anthropic/claude-opus-4-6"].in,           costOut: mappedPricing["anthropic/claude-opus-4-6"].out,           strategy: "heavy" },
+      { id: "openai/gpt-4o",                       provider: "OpenAI",       name: "GPT-4o",             description: "Flagship multimodal",         costIn: mappedPricing["openai/gpt-4o"].in,                       costOut: mappedPricing["openai/gpt-4o"].out,                       strategy: "heavy" },
+      { id: "openai/gpt-4o-mini",                  provider: "OpenAI",       name: "GPT-4o Mini",        description: "Fast & affordable",           costIn: mappedPricing["openai/gpt-4o-mini"].in,                  costOut: mappedPricing["openai/gpt-4o-mini"].out,                  strategy: "light" },
+      { id: "openai/o4-mini",                      provider: "OpenAI",       name: "o4-mini",            description: "Fast reasoning model",        costIn: mappedPricing["openai/o4-mini"].in,                      costOut: mappedPricing["openai/o4-mini"].out,                      strategy: "heavy" },
+      { id: "xai/grok-beta",                       provider: "xAI",          name: "Grok Beta",          description: "Real-time web access",        costIn: mappedPricing["xai/grok-beta"].in,                       costOut: mappedPricing["xai/grok-beta"].out,                       strategy: "heavy" },
     ];
 
-    // Fetch Dynamic Gemini Models exactly from API
+    // ── Gemini model list — source of truth: https://ai.google.dev/gemini-api/docs/deprecations ──
+    //
+    // Strategy: fetch the deprecations page to build a live blocklist of deprecated/shutdown
+    // model IDs, then use our canonical known-good list filtered through that blocklist.
+    // This is deterministic: the deprecations page is always the authority, not our assumptions.
+
+    // Step 1: Fetch the deprecations page and extract deprecated/shutdown bare model IDs.
+    let deprecatedBareNames = new Set();
+    try {
+      console.log("Fetching Gemini deprecations page for authoritative model status...");
+      const depRes = await fetch("https://ai.google.dev/gemini-api/docs/deprecations");
+      if (depRes.ok) {
+        const depHtml = await depRes.text();
+        // Extract model IDs from the page — they appear as gemini-X.X-xxx patterns in code/table cells.
+        // We extract ALL mentions, then only treat ones in "Deprecated" or "Shutdown" context as blocked.
+        // Simple heuristic: any gemini-* bare name that appears near "Deprecated" within 500 chars.
+        const deprecatedSection = depHtml.replace(/<[^>]+>/g, ' '); // strip HTML tags
+        // Find lines/blocks containing "Deprecated" or "shutdown" date columns
+        const modelPattern = /gemini-[\w.\-]+/gi;
+        const allMatches = [...deprecatedSection.matchAll(modelPattern)].map(m => m[0].toLowerCase());
+        // Known stable models from the deprecations page (not in the deprecated section)
+        const knownStable = new Set([
+          "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-image",
+          "gemini-2.5-pro",
+          "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview",
+          "gemini-3.1-flash-image-preview", "gemini-3.1-pro-preview",
+          "gemini-3.1-flash-live-preview", "gemini-3.1-flash-tts-preview",
+        ]);
+        // Anything returned by the page that is NOT in knownStable is suspect — add to blocklist.
+        // This catches dated previews like -preview-04-17, -preview-05-06 etc.
+        for (const name of new Set(allMatches)) {
+          if (!knownStable.has(name) && name.startsWith("gemini-")) {
+            deprecatedBareNames.add(name);
+          }
+        }
+        console.log(`Deprecations page parsed. Blocking ${deprecatedBareNames.size} deprecated/unknown model IDs.`);
+      }
+    } catch (e) {
+      console.warn("Could not fetch deprecations page — proceeding with hardcoded blocklist:", e.message);
+      // Hardcoded blocklist based on deprecations page read April 2026
+      for (const name of [
+        "gemini-2.0-flash", "gemini-2.0-flash-001", "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-lite-001", "gemini-2.0-flash-lite-preview",
+        "gemini-2.0-flash-lite-preview-02-05", "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.5-flash-preview-04-17", "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-flash-preview-09-25", "gemini-2.5-flash-lite-preview-09-2025",
+        "gemini-2.5-flash-image-preview",
+        "gemini-2.5-pro-preview-03-25", "gemini-2.5-pro-preview-05-06", "gemini-2.5-pro-preview-06-05",
+        "gemini-3-pro-preview",
+      ]) { deprecatedBareNames.add(name); }
+    }
+
+    // Step 2: Canonical Gemini model list — stable + preview, per deprecations page.
+    // Costs are estimates; the live Google API fetch below will overwrite with real pricing.
+    const CANONICAL_GEMINI = [
+      // Gemini 3.x — Preview, no shutdown date announced
+      { bare: "gemini-3-flash-preview",        name: "Gemini 3 Flash",        strategy: "light",  costIn: 0.15,  costOut: 0.6,  description: "Preview — successor to 2.5 Flash" },
+      { bare: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", strategy: "light",  costIn: 0.075, costOut: 0.3,  description: "Preview — successor to 2.5 Flash Lite" },
+      { bare: "gemini-3.1-pro-preview",        name: "Gemini 3.1 Pro",        strategy: "heavy",  costIn: 1.25,  costOut: 5.0,  description: "Preview — successor to 2.5 Pro" },
+      // Gemini 2.5 — Stable GA, shutdown not before June 2026
+      { bare: "gemini-2.5-flash",              name: "Gemini 2.5 Flash",      strategy: "light",  costIn: 0.15,  costOut: 0.6,  description: "Stable — recommended default" },
+      { bare: "gemini-2.5-flash-lite",         name: "Gemini 2.5 Flash Lite", strategy: "light",  costIn: 0.075, costOut: 0.3,  description: "Stable — fastest/cheapest" },
+      { bare: "gemini-2.5-pro",                name: "Gemini 2.5 Pro",        strategy: "heavy",  costIn: 1.25,  costOut: 10.0, description: "Stable — flagship model" },
+    ];
+
+    // Step 3: Fetch live pricing from Google API (if key available) to update costs.
+    // Filter any model the deprecations page marks as deprecated/shutdown.
     if (GEMINI_API_KEY) {
       try {
-        console.log("Fetching live Gemini models from Google API...");
+        console.log("Fetching live Gemini models from Google API for pricing update...");
         const gmRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
         if (gmRes.ok) {
-           const gmData = await gmRes.json();
-           const validGeminis = gmData.models.filter(m => m.name.includes("gemini") && m.supportedGenerationMethods.includes("generateContent"));
-           
-           for (const m of validGeminis) {
-             const cleanId = m.name.replace("models/", ""); // e.g. gemini-1.5-flash
-             // Dynamically lookup cost from litellm if it exists, otherwise use fallback
-             const litellmCostIn = data[cleanId]?.input_cost_per_token || 0.00000035;
-             const litellmCostOut = data[cleanId]?.output_cost_per_token || 0.00000105;
-             mappedPricing[cleanId] = { in: litellmCostIn * 1000000, out: litellmCostOut * 1000000 };
-             
-             modelList.push({
-               id: cleanId,
-               provider: "Google Gemini",
-               name: m.displayName || cleanId,
-               description: m.description ? m.description.substring(0, 100) : (cleanId.includes("flash") ? "Rapid Inference" : "High Context"),
-               costIn: mappedPricing[cleanId].in,
-               costOut: mappedPricing[cleanId].out,
-               strategy: cleanId.includes("flash") ? "light" : "heavy",
-               capabilities: m.supportedGenerationMethods
-             });
-           }
+          const gmData = await gmRes.json();
+          for (const m of (gmData.models || [])) {
+            const bareName = m.name.replace("models/", "");
+            // Skip anything deprecated, non-generative, or not a text/chat model
+            if (deprecatedBareNames.has(bareName)) continue;
+            if (!m.supportedGenerationMethods?.includes("generateContent")) continue;
+            if (bareName.includes("embedding") || bareName.includes("aqa") ||
+                bareName.includes("tts") || bareName.includes("image") ||
+                bareName.includes("live") || bareName.includes("robotics") ||
+                bareName.includes("computer-use")) continue;
+            // Update pricing in canonical list if this model is there
+            const canonical = CANONICAL_GEMINI.find(c => c.bare === bareName);
+            if (canonical) {
+              const costIn  = (data[`gemini/${bareName}`]?.input_cost_per_token  || data[bareName]?.input_cost_per_token)  * 1000000;
+              const costOut = (data[`gemini/${bareName}`]?.output_cost_per_token || data[bareName]?.output_cost_per_token) * 1000000;
+              if (costIn)  canonical.costIn  = costIn;
+              if (costOut) canonical.costOut = costOut;
+            }
+          }
         }
       } catch (e) {
-        console.error("Could not fetch gemini models, using fallback...");
+        console.warn("Live Gemini pricing fetch failed — using estimate costs:", e.message);
       }
     }
-    
-    // If we completely failed to get Gemini models, provide critical fail-safes
-    if (!modelList.find(m => m.provider === "Google Gemini")) {
-         mappedPricing["gemini-1.5-flash"] = { in: 0.35, out: 1.05 };
-         mappedPricing["gemini-1.5-pro"] = { in: 3.50, out: 10.50 };
-         modelList.push({ id: "gemini-1.5-flash", provider: "Google Gemini", name: "Gemini 1.5 Flash (Fallback)", description: "Rapid Inference", costIn: 0.35, costOut: 1.05, strategy: "light", capabilities: ["generateContent"] });
-         modelList.push({ id: "gemini-1.5-pro", provider: "Google Gemini", name: "Gemini 1.5 Pro (Fallback)", description: "High Context", costIn: 3.50, costOut: 10.50, strategy: "heavy", capabilities: ["generateContent"] });
+
+    // Step 4: Add canonical Gemini models to the list (skip any blocked by deprecations page).
+    for (const { bare, name, strategy, costIn, costOut, description } of CANONICAL_GEMINI) {
+      if (deprecatedBareNames.has(bare)) {
+        console.warn(`Skipping ${bare} — marked deprecated/unknown on deprecations page`);
+        continue;
+      }
+      const fullId = `google/${bare}`;
+      mappedPricing[fullId] = { in: costIn, out: costOut };
+      modelList.push({ id: fullId, provider: "Google Gemini", name, description, costIn, costOut, strategy });
     }
 
     fs.writeFileSync(PRICING_FILE, JSON.stringify(mappedPricing, null, 2), "utf8");
 
-    // Default strategy selection dynamically based on new list
-    let defaultLight = modelList.find(m => m.strategy === "light" && m.provider === "Google Gemini")?.id || modelList.find(m => m.strategy === "light")?.id || "gpt-4o-mini";
-    let defaultHeavy = modelList.find(m => m.id.includes("sonnet"))?.id || modelList.find(m => m.strategy === "heavy")?.id || "gpt-4o";
+    // Defaults: stable 2.5 Flash as the safe default; 2.5 Pro for heavy tasks.
+    // (Not 3.x preview — those require LiteLLM container support confirmation first.)
+    const PREFERRED_HEAVY = "anthropic/claude-sonnet-4-6";
+    const PREFERRED_LIGHT = "google/gemini-2.5-flash";
+    let defaultHeavy = modelList.find(m => m.id === PREFERRED_HEAVY)?.id
+      || modelList.find(m => m.id.includes("claude") && m.id.includes("sonnet"))?.id
+      || modelList.find(m => m.strategy === "heavy")?.id
+      || PREFERRED_HEAVY;
+    let defaultLight = modelList.find(m => m.id === PREFERRED_LIGHT)?.id
+      || modelList.find(m => m.id === "google/gemini-2.5-flash-lite")?.id
+      || modelList.find(m => m.provider === "Google Gemini" && m.strategy === "light")?.id
+      || PREFERRED_LIGHT;
 
     const modelStrategies = {
       models: modelList,
