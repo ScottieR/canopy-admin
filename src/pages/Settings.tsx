@@ -7,7 +7,8 @@ export default function Settings() {
     apiKeys: { openai: '', anthropic: '' },
     readwiseEnabled: false,
     globalModel: 'gpt-4o',
-    systemPrefix: ''
+    systemPrefix: '',
+    preferencesTemplate: ''
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -103,6 +104,16 @@ export default function Settings() {
                 className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow min-h-[100px]"
                 placeholder="Prefix for all Canopy agents..."
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-textMain">Agent PREFERENCES.md Template</label>
+              <textarea 
+                value={settings.preferencesTemplate}
+                onChange={(e) => setSettings({...settings, preferencesTemplate: e.target.value})}
+                className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow min-h-[150px] font-mono text-sm"
+                placeholder="Default content for new agent PREFERENCES.md files..."
+              />
+              <p className="text-xs text-textMuted font-medium mt-1">This text will be seeded into every new agent's workspace. It will not overwrite existing files.</p>
             </div>
           </div>
         </div>
