@@ -46,6 +46,8 @@ const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 const PRICING_FILE = path.join(DATA_DIR, 'pricing.json');
 const MODELS_FILE = path.join(DATA_DIR, 'models.json');
 const ACCESSORIES_FILE = path.join(DATA_DIR, 'accessories.json');
+const HABITATS_FILE = path.join(DATA_DIR, 'habitats.json');
+const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
 
 // --- Seed Default Accessories if missing ---
 if (!fs.existsSync(ACCESSORIES_FILE)) {
@@ -71,6 +73,18 @@ app.use('/agents', express.static(path.join(__dirname, '../canopy/public/agents'
 app.use('/accessories', express.static(path.join(__dirname, '../canopy/public/accessories')));
 
 // Helper to create CRUD routes for a given file
+if (!fs.existsSync(HABITATS_FILE)) {
+  fs.writeFileSync(HABITATS_FILE, JSON.stringify([
+    {
+      "id": 1,
+      "name": "Default Habitat 1",
+      "path": "/models/habitats/Habitat_1.glb",
+      "type": "glb",
+      "placement": { "x": 0, "y": 0, "z": 0, "rotationY": 0 }
+    }
+  ], null, 2));
+}
+
 function createJsonApi(routePath, filePath) {
   app.get(routePath, (req, res) => {
     try {
@@ -96,6 +110,125 @@ function createJsonApi(routePath, filePath) {
     }
   });
 }
+
+createJsonApi('/api/connectors', CONNECTORS_FILE);
+
+app.post('/api/connectors/generate', async (req, res) => {
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'No prompt provided' });
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY missing from .env' });
+
+  const aiPrompt = `You are a strict configuration generator for a React application.
+The user wants to create a new integration/connector for their AI agent based on this prompt: "${prompt}"
+
+Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact structure:
+{
+  "id": "a short unique lowercase identifier (e.g. 'twitter')",
+  "name": "The display name (e.g. 'Twitter / X')",
+  "subtitle": "A short 1 sentence description of what the agent can do with it",
+  "icon": "A generic lucide-react icon name in lowercase (e.g. 'twitter', 'message-circle', 'calendar', 'cloud', 'database', 'link')",
+  "isGlobal": boolean (true if it connects once for the whole system, false if each agent needs its own account/connection),
+  "isVisible": true,
+  "needsCompanion": boolean (true if it needs an oauth/api token setup chat window),
+  "type": "The connector type. Must be either 'api_token', 'oauth', or 'web_credential' (if it's a website login with username/password)"
+}`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: aiPrompt }] }],
+        generationConfig: { temperature: 0.2 }
+      })
+    });
+
+    if (!response.ok) return res.status(500).json({ error: "Gemini API failed" });
+    const data = await response.json();
+    let textResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "{}";
+    
+    if (textResult.startsWith('\`\`\`')) {
+      textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
+    }
+
+    const newConnector = JSON.parse(textResult);
+
+    // Save to connectors.json
+    let connectors = [];
+    if (fs.existsSync(CONNECTORS_FILE)) {
+      connectors = JSON.parse(fs.readFileSync(CONNECTORS_FILE, 'utf8'));
+    }
+    connectors.push(newConnector);
+    fs.writeFileSync(CONNECTORS_FILE, JSON.stringify(connectors, null, 2), 'utf8');
+
+    // If needsCompanion is true, we scaffold a companion window component
+    if (newConnector.needsCompanion) {
+       const companionName = newConnector.id.charAt(0).toUpperCase() + newConnector.id.slice(1) + 'Companion.tsx';
+       const companionPath = path.join(__dirname, '../canopy/src/components/Companion', companionName);
+       if (!fs.existsSync(companionPath)) {
+         const template = \`import { useState } from "react";
+import { emit } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+
+export function \${companionName.replace('.tsx','')} () {
+  const searchParams = new URLSearchParams(window.location.search);
+  const agentId = searchParams.get("agentId") || "global";
+  const [token, setToken] = useState("");
+  const [status, setStatus] = useState<"idle"|"testing"|"success"|"error">("idle");
+
+  const handleConnect = async () => {
+     setStatus("testing");
+     try {
+       await invoke("store_batch_secrets_cmd", {
+         secrets: { [\`agent_\${agentId}_\${newConnector.id}_token\`]: token }
+       });
+       setStatus("success");
+       setTimeout(async () => {
+          await emit("companion-finished", { type: "\${newConnector.id}" });
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          await getCurrentWindow().close();
+       }, 2000);
+     } catch (e) {
+       setStatus("error");
+     }
+  };
+
+  return (
+    <div style={{ padding: 24, fontFamily: "system-ui", background: "var(--surface-card)", minHeight: "100vh", color: "var(--text-main)" }}>
+      <h2 style={{marginTop: 0}}>Setup \${newConnector.name}</h2>
+      <p style={{fontSize: 13, color: "var(--text-sub)", marginBottom: 24}}>\${newConnector.subtitle}</p>
+      
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>API Token</label>
+        <input 
+          type="password"
+          value={token}
+          onChange={e => setToken(e.target.value)}
+          style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-subtle)", boxSizing: "border-box" }}
+        />
+      </div>
+
+      <button 
+        onClick={handleConnect}
+        disabled={!token || status === "testing" || status === "success"}
+        style={{ width: "100%", padding: "10px", background: status === "success" ? "#34A853" : "#3c6663", color: "white", border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer" }}
+      >
+        {status === "idle" ? "Connect" : status === "testing" ? "Connecting..." : status === "success" ? "Connected!" : "Failed - Try Again"}
+      </button>
+    </div>
+  );
+}
+\`;
+         fs.writeFileSync(companionPath, template, 'utf8');
+       }
+    }
+
+    res.json(newConnector);
+  } catch (error) {
+    console.error("Failed to generate connector:", error);
+    res.status(500).json({ error: 'Failed to process AI request' });
+  }
+});
 
 // --- GENERATION ENDPOINT (IP PROTECTED) ---
 const MONUMENT_VALLEY_PROMPT = `
@@ -303,6 +436,7 @@ createJsonApi('/api/stats', STATS_FILE);
 createJsonApi('/api/pricing', PRICING_FILE);
 createJsonApi('/api/models', MODELS_FILE);
 createJsonApi('/api/accessories', ACCESSORIES_FILE);
+createJsonApi('/api/habitats', HABITATS_FILE);
 
 // --- BACKGROUND PRICING & MODELS CRON ---
 async function syncPricingAndModels() {
