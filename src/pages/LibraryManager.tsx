@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Tag } from 'lucide-react';
+import BookSearch from '../components/BookSearch';
+import type { BookSchema } from '../components/BookSearch';
 
 export default function LibraryManager() {
-  const [library, setLibrary] = useState<any[]>([]);
+  const [library, setLibrary] = useState<BookSchema[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [newBook, setNewBook] = useState({ title: '', author: '' });
 
   useEffect(() => {
     fetch('http://localhost:3001/api/library')
@@ -14,7 +15,7 @@ export default function LibraryManager() {
       .catch(err => console.error("Could not fetch library", err));
   }, []);
 
-  const handleSave = async (updatedLibrary: any[]) => {
+  const handleSave = async (updatedLibrary: BookSchema[]) => {
     try {
       await fetch('http://localhost:3001/api/library', {
         method: 'POST',
@@ -28,16 +29,17 @@ export default function LibraryManager() {
     }
   };
 
-  const addBook = () => {
-    if (!newBook.title.trim() || !newBook.author.trim()) return;
-    const updated = [...library, { ...newBook }];
+  const handleAddBooks = (newBooks: BookSchema[]) => {
+    // avoid duplicates by checking keys
+    const existingKeys = new Set(library.map(b => b.key));
+    const toAdd = newBooks.filter(b => !existingKeys.has(b.key));
+    const updated = [...library, ...toAdd];
     handleSave(updated);
-    setNewBook({ title: '', author: '' });
     setIsAdding(false);
   };
 
-  const removeBook = (titleToRemove: string) => {
-    const updated = library.filter(b => b.title !== titleToRemove);
+  const removeBook = (keyToRemove: string) => {
+    const updated = library.filter(b => b.key !== keyToRemove);
     handleSave(updated);
   };
 
@@ -50,64 +52,73 @@ export default function LibraryManager() {
         </div>
         <button 
           onClick={() => setIsAdding(!isAdding)}
-          className="flex items-center gap-2 bg-primary hover:bg-primaryHover text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-primary/30 active:scale-95"
+          className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 ${isAdding ? 'bg-outline-variant text-textMain shadow-none' : 'bg-primary hover:bg-primaryHover text-white shadow-primary/30'}`}
         >
-          <Plus size={20} className="stroke-[3px]" />
-          Add to Library
+          {isAdding ? "Cancel Search" : <><Plus size={20} className="stroke-[3px]" /> Add to Library</>}
         </button>
       </div>
 
       {isAdding && (
-         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white border border-primary/30 rounded-3xl p-6 shadow-md max-w-2xl flex flex-col gap-4">
-           <h3 className="font-bold text-textMain text-lg">Add New Book</h3>
-           <div className="grid grid-cols-2 gap-4">
-             <div>
-                <label className="text-xs font-bold text-textMain mb-1 block">Title</label>
-                <input 
-                  type="text" 
-                  value={newBook.title}
-                  onChange={e => setNewBook({...newBook, title: e.target.value})}
-                  className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
-                  placeholder="e.g. Moby-Dick"
-                />
-             </div>
-             <div>
-                <label className="text-xs font-bold text-textMain mb-1 block">Author</label>
-                <input 
-                  type="text" 
-                  value={newBook.author}
-                  onChange={e => setNewBook({...newBook, author: e.target.value})}
-                  className="w-full bg-background border border-border rounded-xl px-4 py-2.5 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50" 
-                  placeholder="e.g. Herman Melville"
-                />
-             </div>
-           </div>
-           <div className="flex justify-end gap-3 mt-2">
-             <button onClick={() => setIsAdding(false)} className="px-5 py-2 font-bold text-textMuted hover:text-textMain">Cancel</button>
-             <button onClick={addBook} className="px-5 py-2 font-bold text-white bg-textMain rounded-xl shadow-sm hover:bg-black transition-colors">Save Book</button>
-           </div>
+         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-5xl">
+            <BookSearch onAdd={handleAddBooks} />
          </motion.div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {library.map((book, idx) => (
-          <motion.div key={idx} className="bg-white border border-[#D9CFC4] rounded-2xl p-6 flex flex-col shadow-sm hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {library.map((book) => (
+          <motion.div layout key={book.key} className="bg-white border border-[#D9CFC4] rounded-3xl p-5 flex flex-col shadow-sm hover:shadow-md transition-all group hover:border-primary/30">
             <div className="flex items-start justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 text-primary">
-                <BookOpen size={24} />
+              <div className="w-16 h-20 bg-background rounded-lg border border-border flex items-center justify-center overflow-hidden shrink-0">
+                {book.coverUrl ? (
+                  <img src={book.coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                ) : (
+                  <BookOpen size={24} className="text-textMuted/40" />
+                )}
               </div>
               <button 
-                onClick={() => removeBook(book.title)}
-                className="p-2 text-textMuted hover:text-[#D96C3B] hover:bg-[#D96C3B]/10 rounded-lg transition-colors"
+                onClick={() => removeBook(book.key)}
+                className="p-2 text-textMuted hover:text-[#D96C3B] hover:bg-[#D96C3B]/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                 title="Remove from Global Library"
               >
                 <Trash2 size={18} />
               </button>
             </div>
             
-            <div className="mt-auto pt-2">
-              <h3 className="text-xl font-bold text-textMain leading-tight">{book.title}</h3>
-              <p className="text-textMuted font-medium text-sm mt-1">{book.author}</p>
+            <div className="flex-1 flex flex-col">
+              <h3 className="text-lg font-bold text-textMain leading-tight line-clamp-2" title={book.title}>{book.title}</h3>
+              <p className="text-textMuted font-medium text-sm mt-1 mb-3">{book.author}</p>
+              
+              {book.description && (
+                <div className="relative group/desc">
+                  <p className="text-xs text-textMuted line-clamp-2 mb-3 bg-background p-2 rounded-lg border border-border">
+                    {book.description}
+                  </p>
+                  <div className="absolute hidden group-hover/desc:block z-10 w-full max-h-48 overflow-y-auto bg-surface border border-outline-variant rounded-xl p-3 shadow-xl top-full mt-1 text-xs text-textMain">
+                    {book.description}
+                  </div>
+                </div>
+              )}
+              
+              <div className="mt-auto pt-2 border-t border-border/50">
+                <div className="flex flex-wrap gap-1 mb-2">
+                   {book.subjects?.slice(0, 3).map(s => (
+                     <span key={s} className="text-[10px] font-bold bg-background text-textMuted px-2 py-0.5 rounded-full border border-border">{s}</span>
+                   ))}
+                </div>
+                
+                <div className="flex flex-wrap gap-1 items-center">
+                  <Tag size={12} className="text-primary mr-1" />
+                  {book.recommendedAgents && book.recommendedAgents.length > 0 ? (
+                    book.recommendedAgents.map(a => (
+                      <span key={a} className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
+                        {a}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[10px] italic text-textMuted">No agents assigned</span>
+                  )}
+                </div>
+              </div>
             </div>
           </motion.div>
         ))}

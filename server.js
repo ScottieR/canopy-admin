@@ -465,13 +465,15 @@ async function syncPricingAndModels() {
     };
 
     let modelList = [
-      { id: "anthropic/claude-sonnet-4-6",        provider: "Anthropic",     name: "Claude Sonnet 4.6",  description: "Fast & highly capable",      costIn: mappedPricing["anthropic/claude-sonnet-4-6"].in,        costOut: mappedPricing["anthropic/claude-sonnet-4-6"].out,        strategy: "heavy" },
-      { id: "anthropic/claude-haiku-4-5-20251001", provider: "Anthropic",    name: "Claude Haiku 4.5",   description: "Fastest Anthropic model",     costIn: mappedPricing["anthropic/claude-haiku-4-5-20251001"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5-20251001"].out, strategy: "light" },
-      { id: "anthropic/claude-opus-4-6",           provider: "Anthropic",    name: "Claude Opus 4.6",    description: "Most capable Anthropic",      costIn: mappedPricing["anthropic/claude-opus-4-6"].in,           costOut: mappedPricing["anthropic/claude-opus-4-6"].out,           strategy: "heavy" },
-      { id: "openai/gpt-4o",                       provider: "OpenAI",       name: "GPT-4o",             description: "Flagship multimodal",         costIn: mappedPricing["openai/gpt-4o"].in,                       costOut: mappedPricing["openai/gpt-4o"].out,                       strategy: "heavy" },
-      { id: "openai/gpt-4o-mini",                  provider: "OpenAI",       name: "GPT-4o Mini",        description: "Fast & affordable",           costIn: mappedPricing["openai/gpt-4o-mini"].in,                  costOut: mappedPricing["openai/gpt-4o-mini"].out,                  strategy: "light" },
-      { id: "openai/o4-mini",                      provider: "OpenAI",       name: "o4-mini",            description: "Fast reasoning model",        costIn: mappedPricing["openai/o4-mini"].in,                      costOut: mappedPricing["openai/o4-mini"].out,                      strategy: "heavy" },
-      { id: "xai/grok-beta",                       provider: "xAI",          name: "Grok Beta",          description: "Real-time web access",        costIn: mappedPricing["xai/grok-beta"].in,                       costOut: mappedPricing["xai/grok-beta"].out,                       strategy: "heavy" },
+      // Anthropic
+      { id: "anthropic/claude-sonnet-4-6", provider: "Anthropic", name: "Claude Sonnet 4.6", description: "Fast & highly capable", costIn: mappedPricing["anthropic/claude-sonnet-4-6"].in, costOut: mappedPricing["anthropic/claude-sonnet-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-sonnet-4-6" },
+      { id: "anthropic/claude-haiku-4-5", provider: "Anthropic", name: "Claude Haiku 4.5", description: "Fastest Anthropic model", costIn: mappedPricing["anthropic/claude-haiku-4-5-20251001"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5-20251001"].out, strategy: "light", status: "stable", rawVariable: "claude-haiku-4-5" },
+      { id: "anthropic/claude-opus-4-6", provider: "Anthropic", name: "Claude Opus 4.6", description: "Most capable Anthropic", costIn: mappedPricing["anthropic/claude-opus-4-6"].in, costOut: mappedPricing["anthropic/claude-opus-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-4-6" },
+      // OpenAI
+      { id: "openai/gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Flagship multimodal", costIn: mappedPricing["openai/gpt-4o"].in, costOut: mappedPricing["openai/gpt-4o"].out, strategy: "heavy", status: "stable", rawVariable: "gpt-4o" },
+      { id: "openai/gpt-4o-mini", provider: "OpenAI", name: "GPT-4o Mini", description: "Fast & affordable", costIn: mappedPricing["openai/gpt-4o-mini"].in, costOut: mappedPricing["openai/gpt-4o-mini"].out, strategy: "light", status: "stable", rawVariable: "gpt-4o-mini" },
+      { id: "openai/o4-mini", provider: "OpenAI", name: "o4-mini", description: "Fast reasoning model", costIn: mappedPricing["openai/o4-mini"].in, costOut: mappedPricing["openai/o4-mini"].out, strategy: "heavy", status: "stable", rawVariable: "o4-mini" },
+      { id: "xai/grok-beta", provider: "xAI", name: "Grok Beta", description: "Real-time web access", costIn: mappedPricing["xai/grok-beta"].in, costOut: mappedPricing["xai/grok-beta"].out, strategy: "heavy", status: "stable", rawVariable: "grok-beta" },
     ];
 
     // ── Gemini model list — source of truth: https://ai.google.dev/gemini-api/docs/deprecations ──
@@ -571,15 +573,16 @@ async function syncPricingAndModels() {
       }
     }
 
-    // Step 4: Add canonical Gemini models to the list (skip any blocked by deprecations page).
+    // Step 4: Add canonical Gemini models to the list. Do not skip deprecated ones entirely, pass them through as deprecated so the UI can audit them.
     for (const { bare, name, strategy, costIn, costOut, description } of CANONICAL_GEMINI) {
-      if (deprecatedBareNames.has(bare)) {
-        console.warn(`Skipping ${bare} — marked deprecated/unknown on deprecations page`);
-        continue;
-      }
+      const isDeprecated = deprecatedBareNames.has(bare);
+      const status = isDeprecated ? "deprecated" : (bare.includes("preview") ? "preview" : "stable");
+      
       const fullId = `google/${bare}`;
-      mappedPricing[fullId] = { in: costIn, out: costOut };
-      modelList.push({ id: fullId, provider: "Google Gemini", name, description, costIn, costOut, strategy });
+      if (!isDeprecated) {
+        mappedPricing[fullId] = { in: costIn, out: costOut };
+      }
+      modelList.push({ id: fullId, provider: "Google Gemini", name, description, costIn, costOut, strategy, status, rawVariable: bare });
     }
 
     fs.writeFileSync(PRICING_FILE, JSON.stringify(mappedPricing, null, 2), "utf8");
@@ -716,6 +719,22 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message || 'Check failed' });
+  }
+});
+
+app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No image provided' });
+    const ext = path.extname(file.originalname).toLowerCase();
+    const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+    const savePath = path.join(__dirname, '../canopy/public/agents', fileName);
+    fs.renameSync(file.path, savePath);
+    
+    res.json({ success: true, imagePath: `/agents/${fileName}` });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to upload image' });
   }
 });
 

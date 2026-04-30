@@ -1,5 +1,5 @@
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, Shirt, Cpu, Layers } from 'lucide-react';
+import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, Shirt, Cpu, Layers, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Dashboard from './pages/Dashboard';
 import AgentManager from './pages/AgentManager';
@@ -9,6 +9,7 @@ import AccessoryManager from './pages/AccessoryManager';
 import ModelRegistry from './pages/ModelRegistry';
 import HabitatManager from './pages/HabitatManager';
 import { ConnectorsManager } from './pages/ConnectorsManager';
+import AgentFilesManager from './pages/AgentFilesManager';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -18,6 +19,7 @@ const navItems = [
   { path: '/accessories', label: 'Cosmetics Catalog', icon: Shirt },
   { path: '/habitats', label: 'Habitat Manager', icon: Layers },
   { path: '/connectors', label: 'Connectors', icon: Layers },
+  { path: '/agent-files', label: 'Default Agent Files', icon: FileText },
   { path: '/settings', label: 'Platform Settings', icon: SettingsIcon },
 ];
 
@@ -91,6 +93,7 @@ export default function App() {
             <Route path="/accessories" element={<AccessoryManager />} />
             <Route path="/habitats" element={<HabitatManager />} />
             <Route path="/connectors" element={<ConnectorsManager />} />
+            <Route path="/agent-files" element={<AgentFilesManager />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>

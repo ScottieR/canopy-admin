@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, Trash2, Tag, Zap, Scale } from 'lucide-react';
+import { RefreshCw, Trash2, Zap, Scale } from 'lucide-react';
 
 export default function ModelRegistry() {
   const [modelsData, setModelsData] = useState({ models: [], strategies: {} });
@@ -110,18 +110,17 @@ export default function ModelRegistry() {
                  <h4 className="font-extrabold text-lg text-textMain">{model.name}</h4>
                  <div className="flex items-center gap-2 mt-1">
                    <span className="text-xs font-bold px-2 py-0.5 bg-black/5 rounded text-textMuted">{model.provider}</span>
-                   <span className="text-xs font-medium text-textMuted">{model.id}</span>
+                   <span className="text-xs font-mono text-textMuted/80 bg-background px-1.5 rounded border border-border">var: {model.rawVariable || model.id}</span>
                  </div>
                </div>
             </div>
 
-            <div className="w-1/3 text-sm text-textMuted font-medium pr-8">
+            <div className="w-1/4 text-sm text-textMuted font-medium pr-8">
                <p className="truncate">{model.description}</p>
                <div className="flex items-center gap-2 mt-2">
-                 {model.capabilities?.slice(0, 3).map((cap: string) => (
-                    <span key={cap} className="text-[10px] uppercase tracking-wider font-bold bg-[#F3F0EA] px-2 py-0.5 rounded-full text-textMain flex items-center gap-1"><Tag size={10} /> {cap}</span>
-                 ))}
-                 {model.capabilities?.length > 3 && <span className="text-[10px] font-bold text-textMuted">+{model.capabilities.length - 3}</span>}
+                 {model.status === 'deprecated' && <span className="text-[10px] uppercase tracking-wider font-bold bg-[#ffeaea] text-[#C62828] px-2 py-0.5 rounded-full border border-[#C62828]/20">Deprecated</span>}
+                 {model.status === 'preview' && <span className="text-[10px] uppercase tracking-wider font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-300/50">Preview</span>}
+                 {model.status === 'stable' && <span className="text-[10px] uppercase tracking-wider font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300/50">Stable</span>}
                </div>
             </div>
 

@@ -7,6 +7,7 @@ import { AdminTerrarium } from '../components/3d/AdminTerrarium';
 import { SafeBillboard } from '../components/3d/SafeBillboard';
 import { AccessoryStudio } from '../components/AccessoryStudio';
 import RAW_AGENT_TYPE_INFO from '../../../shared/agents.json';
+import BookSearch from '../components/BookSearch';
 
 export default function AgentManager() {
   const [rawJSON, setRawJSON] = useState<Record<string, any>>(RAW_AGENT_TYPE_INFO);
@@ -131,12 +132,13 @@ export default function AgentManager() {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all flex flex-col border border-border h-full"
+              onClick={() => openModal(agent)}
+              className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all flex flex-col border border-border h-full cursor-pointer"
             >
             <div className={`h-64 w-full overflow-hidden relative flex items-center justify-center`} style={{ backgroundColor: agent.habitatColor || '#D6A3B9' }}>
                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent z-10" />
               {agent.image ? (
-                 <img src={agent.image} alt={agent.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 relative z-0" />
+                 <img src={agent.image.startsWith('http') ? agent.image : `http://localhost:3001${agent.image}`} alt={agent.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 relative z-0" />
               ) : (
                 <div className="w-20 h-20 rounded-full" style={{ backgroundColor: agent.robeColor, boxShadow: "0 10px 20px rgba(0,0,0,0.1)" }}></div>
               )}
@@ -149,22 +151,15 @@ export default function AgentManager() {
             </div>
             
             <div className="p-6 flex-1 flex flex-col pt-5">
-              <div className="flex justify-end items-start mb-2">
-                <div className="flex gap-1">
-                  <button onClick={() => openModal(agent)} className="p-2 text-textMuted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors">
-                    <Edit2 size={16} />
-                  </button>
-                </div>
-              </div>
               <p className="text-textMuted text-sm font-medium mb-6 leading-relaxed line-clamp-2 text-center" title={agent.role}>{agent.role}</p>
               
               <div className={`mt-auto space-y-3`}>
                 <div className="flex items-start gap-2">
                   <BookOpen size={16} className="text-primary mt-0.5 shrink-0" />
                   <div className="flex flex-wrap gap-1.5">
-                    {agent.library.map((book: string, i: number) => (
+                    {agent.library.map((book: any, i: number) => (
                       <span key={i} className="text-xs px-2 py-1 bg-backgroundAlt border border-border rounded-lg text-textMuted font-medium">
-                        {book}
+                        {typeof book === 'string' ? book : book.title}
                       </span>
                     ))}
                   </div>
@@ -263,6 +258,38 @@ export default function AgentManager() {
                           onChange={(e) => setEditingAgent({ ...editingAgent, role: e.target.value })}
                           className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none" 
                         />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-textMain">Agent Image</label>
+                        <div className="flex gap-4 items-center">
+                          {editingAgent?.image && (
+                            <img src={editingAgent.image.startsWith('http') ? editingAgent.image : `http://localhost:3001${editingAgent.image}`} className="w-16 h-16 rounded-xl object-cover border border-border shrink-0" />
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const formData = new FormData();
+                              formData.append('image', file);
+                              try {
+                                const res = await fetch('http://localhost:3001/api/upload-agent-image', {
+                                  method: 'POST',
+                                  body: formData
+                                });
+                                const data = await res.json();
+                                if (data.success) {
+                                  setEditingAgent({ ...editingAgent, image: data.imagePath });
+                                }
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                            className="w-full bg-background border border-border rounded-xl px-4 py-2 text-sm text-textMain font-medium focus:outline-none" 
+                          />
+                        </div>
                       </div>
                       
                       <div className="grid grid-cols-2 gap-4">
@@ -370,35 +397,81 @@ export default function AgentManager() {
                   )}
 
                   {activeTab === 'knowledge' && (
-                    <div className="space-y-6 animate-fade-in">
+                    <div className="space-y-8 animate-fade-in">
                        <div className="space-y-3">
-                         <label className="text-sm font-bold text-textMain">Curated Public Domain Books</label>
-                         {globalLibrary.map(book => {
-                            const isInLibrary = editingAgent?.library?.find((b: any) => b.title === book.title);
-                            return (
-                              <div key={book.title} className={`p-4 border rounded-xl flex items-center justify-between ${isInLibrary ? 'border-primary bg-primary/5' : 'border-border bg-white'}`}>
-                                <div className="flex items-center gap-3">
-                                  <BookOpen size={20} className={isInLibrary ? 'text-primary' : 'text-textMuted'} />
-                                  <div>
-                                    <p className="font-bold text-textMain text-sm truncate max-w-[150px]">{book.title}</p>
-                                    <p className="text-xs font-medium text-textMuted">{book.author}</p>
+                         <label className="text-sm font-bold text-textMain">Search & Add Books to Knowledge Base</label>
+                         <p className="text-xs text-textMuted mb-2">Books added here will be saved to the global library and automatically tagged for {editingAgent?.id}.</p>
+                         <BookSearch onAdd={async (newBooks) => {
+                           // Inject the current editingAgent.id into the recommendedAgents array
+                           const customizedBooks = newBooks.map(b => ({
+                             ...b,
+                             recommendedAgents: [editingAgent.id]
+                           }));
+
+                           const existingKeys = new Set(globalLibrary.map(b => b.key));
+                           const toAdd = customizedBooks.filter(b => !existingKeys.has(b.key));
+                           
+                           const updatedLibrary = globalLibrary.map(b => {
+                             if (newBooks.some(nb => nb.key === b.key)) {
+                               if (!b.recommendedAgents?.includes(editingAgent.id)) {
+                                 return { ...b, recommendedAgents: [...(b.recommendedAgents || []), editingAgent.id] };
+                               }
+                             }
+                             return b;
+                           });
+                           
+                           const finalLibrary = [...updatedLibrary, ...toAdd];
+                           
+                           try {
+                             await fetch('http://localhost:3001/api/library', {
+                               method: 'POST',
+                               headers: { 'Content-Type': 'application/json' },
+                               body: JSON.stringify(finalLibrary)
+                             });
+                             setGlobalLibrary(finalLibrary);
+                           } catch(err) {
+                             console.error("Failed to save library updates", err);
+                           }
+                         }} />
+                       </div>
+
+                       <div className="space-y-3">
+                         <label className="text-sm font-bold text-textMain">Currently Assigned Books ({globalLibrary.filter(b => b.recommendedAgents?.includes(editingAgent?.id)).length})</label>
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                           {globalLibrary.map(book => {
+                              const isAssigned = book.recommendedAgents?.includes(editingAgent?.id);
+                              if (!isAssigned) return null;
+                              
+                              return (
+                                <div key={book.key} className="p-4 border border-primary bg-primary/5 rounded-xl flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-14 bg-background border border-border rounded overflow-hidden flex-shrink-0">
+                                       {book.coverUrl ? <img src={book.coverUrl} className="w-full h-full object-cover" /> : <BookOpen size={16} className="m-auto mt-4 text-textMuted/40" />}
+                                    </div>
+                                    <div>
+                                      <p className="font-bold text-textMain text-sm truncate max-w-[150px]" title={book.title}>{book.title}</p>
+                                      <p className="text-xs font-medium text-textMuted">{book.author}</p>
+                                    </div>
                                   </div>
-                                </div>
-                                {isInLibrary ? (
-                                  <button onClick={() => setEditingAgent({ ...editingAgent, library: editingAgent.library.filter((b: any) => b.title !== book.title) })} className="text-textMuted hover:text-[#D96C3B] p-1">
+                                  <button onClick={async () => {
+                                     // Remove tag
+                                     const updatedLibrary = globalLibrary.map(b => {
+                                        if (b.key === book.key) {
+                                           return { ...b, recommendedAgents: b.recommendedAgents.filter((a: string) => a !== editingAgent.id) };
+                                        }
+                                        return b;
+                                     });
+                                     setGlobalLibrary(updatedLibrary);
+                                     try {
+                                       await fetch('http://localhost:3001/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatedLibrary) });
+                                     } catch (e) { console.error(e); }
+                                  }} className="text-textMuted hover:text-[#D96C3B] p-2" title="Unassign from agent">
                                     <X size={16} />
                                   </button>
-                                ) : (
-                                  <button onClick={() => {
-                                      const currentLib = editingAgent?.library || [];
-                                      setEditingAgent({ ...editingAgent, library: [...currentLib, { title: book.title, author: book.author, mode: 'Cultural Reference' }] })
-                                    }} className="text-xs font-bold text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg">
-                                    Add
-                                  </button>
-                                )}
-                              </div>
-                            );
-                         })}
+                                </div>
+                              );
+                           })}
+                         </div>
                        </div>
                     </div>
                   )}

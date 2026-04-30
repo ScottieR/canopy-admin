@@ -98,9 +98,9 @@ export function ConnectorsManager() {
                 <td className="px-6 py-4">
                   <button 
                     onClick={() => toggleVisibility(c.id)}
-                    className={\`relative inline-flex h-6 w-11 items-center rounded-full transition-colors \${c.isVisible ? 'bg-teal-500' : 'bg-gray-200'}\`}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${c.isVisible ? 'bg-teal-500' : 'bg-gray-200'}`}
                   >
-                    <span className={\`inline-block h-4 w-4 transform rounded-full bg-white transition-transform \${c.isVisible ? 'translate-x-6' : 'translate-x-1'}\`} />
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${c.isVisible ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-500">
