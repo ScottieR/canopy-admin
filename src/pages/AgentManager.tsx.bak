@@ -1,7 +1,7 @@
-import { useState, useEffect, Component, Suspense } from 'react';
+import { useState, useEffect, Component } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, BookOpen, ToggleRight, ToggleLeft, Edit3, Check } from 'lucide-react';
+import { Plus, X, Shield, BookOpen, ToggleRight, ToggleLeft } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
 import { AdminGLBAgent } from '../components/3d/AdminGLBAgent';
 import { AdminTerrarium } from '../components/3d/AdminTerrarium';
@@ -9,17 +9,6 @@ import { SafeBillboard } from '../components/3d/SafeBillboard';
 import { AccessoryStudio } from '../components/AccessoryStudio';
 import RAW_AGENT_TYPE_INFO from '../../../shared/agents.json';
 import BookSearch from '../components/BookSearch';
-
-const SWATCHES = [
-  { name: 'Sage', color: '#BFCB75', robeColor: '#A5B55A', accentColor: '#E5EEAF', habitatColor: '#D8E38E' },
-  { name: 'Ocean', color: '#5A9BB5', robeColor: '#4A859E', accentColor: '#96D0EA', habitatColor: '#6CAECA' },
-  { name: 'Terra Cotta', color: '#D68971', robeColor: '#BF725A', accentColor: '#F5B8A4', habitatColor: '#E6A08A' },
-  { name: 'Midnight', color: '#3A425A', robeColor: '#2C334A', accentColor: '#7A86A8', habitatColor: '#4A5573' },
-  { name: 'Lavender', color: '#A592B5', robeColor: '#8C7A9E', accentColor: '#DCCCEB', habitatColor: '#BCAAD1' },
-  { name: 'Slate', color: '#7E868C', robeColor: '#636C73', accentColor: '#B4BEC4', habitatColor: '#98A3AB' },
-  { name: 'Canopy Core', color: '#218380', robeColor: '#176664', accentColor: '#4BC0BC', habitatColor: '#D2D6C8' },
-  { name: 'Sand', color: '#D6C8A3', robeColor: '#BFB18A', accentColor: '#F5EAC4', habitatColor: '#E6DAAB' }
-];
 
 class ModelErrorBoundary extends Component<{children: ReactNode}, {hasError: boolean}> {
   constructor(props: {children: ReactNode}) {
@@ -44,10 +33,8 @@ export default function AgentManager() {
   const [rawJSON, setRawJSON] = useState<Record<string, any>>(RAW_AGENT_TYPE_INFO);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<any>(null);
-  const [editingOriginalId, setEditingOriginalId] = useState<string | null>(null);
   const [globalLibrary, setGlobalLibrary] = useState<any[]>([]);
-  const [globalHabitats, setGlobalHabitats] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'identity' | 'accessories' | 'knowledge' | 'files'>('identity');
+  const [activeTab, setActiveTab] = useState<'identity' | 'accessories' | 'knowledge'>('identity');
   const [globalAccessories, setGlobalAccessories] = useState<any>({ items: {} });
 
   useEffect(() => {
@@ -65,18 +52,13 @@ export default function AgentManager() {
       .then(res => res.json())
       .then(data => setGlobalAccessories(data))
       .catch(err => console.warn("Could not load accessories library.", err));
-
-    fetch('http://localhost:3001/api/habitats')
-      .then(res => res.json())
-      .then(data => setGlobalHabitats(Array.isArray(data) ? data : []))
-      .catch(err => console.warn("Could not load habitats.", err));
   }, [isModalOpen]);
 
   const agents = Object.entries(rawJSON).map(([key, val]) => ({
     id: key,
     name: key,
     role: val.description,
-    image: val.image || '',
+    image: val.image || 'https://images.unsplash.com/photo-1544377193-33dce4d95d0c?q=80&w=250&auto=format&fit=crop&sepia=1',
     library: val.library || [], 
     permissions: val.permissions || { calendar: true, files: true, web: true, email: false }, 
     status: val.suggest_in_onboarding ? 'Active' : 'Archived',
@@ -86,18 +68,11 @@ export default function AgentManager() {
     accentColor: val.accentColor || '#cccccc',
     habitatColor: val.habitatColor || '#D2D6C8',
     habitatLabel: val.habitatLabel || 'The Void',
-    habitatId: val.habitatId,
     manual_order: val.manual_order,
     popularity: val.popularity || 0,
     accessories: val.accessories || [],
-    soul_template: val.soul_template || '',
-    identity_template: val.identity_template || '',
     ...val
   })).sort((a: any, b: any) => {
-    // Active / visible first
-    if (a.suggest_in_onboarding && !b.suggest_in_onboarding) return -1;
-    if (!a.suggest_in_onboarding && b.suggest_in_onboarding) return 1;
-
     const aOrder = a.manual_order;
     const bOrder = b.manual_order;
     if (aOrder != null && bOrder != null) return aOrder - bOrder;
@@ -107,46 +82,21 @@ export default function AgentManager() {
   });
 
   const openModal = (agent: any = null) => {
-    if (agent) {
-       setEditingOriginalId(agent.id);
-       setEditingAgent({ ...agent });
-    } else {
-       setEditingOriginalId(null);
-       setEditingAgent({
-          id: 'New Agent',
-          role: '',
-          suggest_in_onboarding: true,
-          color: SWATCHES[0].color,
-          robeColor: SWATCHES[0].robeColor,
-          accentColor: SWATCHES[0].accentColor,
-          habitatColor: SWATCHES[0].habitatColor,
-          accessories: [],
-          library: [],
-          soul_template: '',
-          identity_template: ''
-       });
-    }
+    setEditingAgent(agent);
     setActiveTab('identity');
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setEditingAgent(null);
-    setEditingOriginalId(null);
     setIsModalOpen(false);
   };
 
   const handleSave = async () => {
     if (!editingAgent) return;
     const newJSON = { ...rawJSON };
-
-    // If they changed the ID, we need to delete the old key
-    if (editingOriginalId && editingOriginalId !== editingAgent.id) {
-       delete newJSON[editingOriginalId];
-    }
-
     newJSON[editingAgent.id] = {
-      ...(editingOriginalId ? newJSON[editingOriginalId] : {}),
+      ...newJSON[editingAgent.id],
       description: editingAgent.role,
       image: editingAgent.image,
       suggest_in_onboarding: editingAgent.suggest_in_onboarding,
@@ -157,12 +107,9 @@ export default function AgentManager() {
       accentColor: editingAgent.accentColor,
       habitatColor: editingAgent.habitatColor,
       habitatLabel: editingAgent.habitatLabel,
-      habitatId: editingAgent.habitatId,
       manual_order: editingAgent.manual_order,
       popularity: editingAgent.popularity,
-      accessories: editingAgent.accessories,
-      soul_template: editingAgent.soul_template,
-      identity_template: editingAgent.identity_template
+      accessories: editingAgent.accessories
     };
     
     try {
@@ -182,11 +129,11 @@ export default function AgentManager() {
   };
 
   return (
-    <div className="space-y-6 flex flex-col h-full max-w-7xl mx-auto">
+    <div className="space-y-6 flex flex-col h-full">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-extrabold tracking-tight text-textMain mb-2">Agent Templates</h1>
-          <p className="text-textMuted font-medium">Manage global recommended personalities and their default settings.</p>
+          <p className="text-textMuted font-medium">Manage global recommended personalities and their default permissions.</p>
         </div>
         <button 
           onClick={() => openModal()}
@@ -197,67 +144,59 @@ export default function AgentManager() {
         </button>
       </div>
 
-      {/* Agents Row List */}
-      <div className="bg-white rounded-3xl border border-border shadow-sm overflow-hidden mt-6">
-        <table className="w-full text-left">
-          <thead className="bg-backgroundAlt border-b border-border">
-             <tr>
-                <th className="px-6 py-4 font-bold text-textMuted text-xs uppercase tracking-wider">Agent Role</th>
-                <th className="px-6 py-4 font-bold text-textMuted text-xs uppercase tracking-wider">Accessories</th>
-                <th className="px-6 py-4 font-bold text-textMuted text-xs uppercase tracking-wider">Visibility</th>
-                <th className="px-6 py-4 font-bold text-textMuted text-xs uppercase tracking-wider text-right">Actions</th>
-             </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-             {agents.map(agent => (
-               <motion.tr 
-                 key={agent.id} 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 className="hover:bg-backgroundAlt/50 transition-colors group cursor-pointer"
-                 onClick={() => openModal(agent)}
-               >
-                  <td className="px-6 py-4 flex items-center gap-4">
-                     {/* 3D Preview Thumbnail */}
-                     <div className="w-16 h-16 rounded-xl overflow-hidden relative border border-border shadow-inner" style={{ backgroundColor: agent.habitatColor || '#D6A3B9' }}>
-                        {agent.image ? (
-                           <img src={agent.image.startsWith('http') ? agent.image : `http://localhost:3001${agent.image}`} alt={agent.name} className="w-full h-full object-cover" />
-                        ) : (
-                           <div className="w-full h-full" style={{ backgroundColor: agent.robeColor }}></div>
-                        )}
-                     </div>
-                     <div>
-                        <h3 className="font-extrabold text-textMain text-lg">{agent.id}</h3>
-                        <p className="text-sm font-medium text-textMuted max-w-sm truncate" title={agent.role}>{agent.role || 'No description'}</p>
-                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                     <div className="flex gap-1.5 flex-wrap">
-                        {agent.accessories && agent.accessories.length > 0 ? (
-                           agent.accessories.map((acc: string, i: number) => (
-                              <div key={i} className="w-8 h-8 rounded border border-border bg-white shadow-sm flex items-center justify-center p-0.5">
-                                 <img src={`http://localhost:3001${acc}`} className="w-full h-full object-contain" />
-                              </div>
-                           ))
-                        ) : (
-                           <span className="text-xs font-bold text-textMuted/50 uppercase tracking-wider">None</span>
-                        )}
-                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                     <span className={`inline-flex px-3 py-1 rounded-lg text-xs font-bold ${agent.suggest_in_onboarding ? 'bg-primary/10 text-primary' : 'bg-black/5 text-textMuted'}`}>
-                        {agent.suggest_in_onboarding ? 'Visible' : 'Hidden'}
-                     </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                     <button className="text-textMuted group-hover:text-primary transition-colors p-2 bg-transparent hover:bg-white rounded-lg border border-transparent group-hover:border-border shadow-sm opacity-0 group-hover:opacity-100 flex items-center gap-2 ml-auto">
-                        <Edit3 size={16} className="stroke-[3px]" /> Edit
-                     </button>
-                  </td>
-               </motion.tr>
-             ))}
-          </tbody>
-        </table>
+      {/* Agents Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-10">
+        {agents.map(agent => (
+          <div key={agent.id} className="flex flex-col">
+            <h3 className="text-center font-bold text-textMain mb-3 text-lg">{agent.name}</h3>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              onClick={() => openModal(agent)}
+              className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all flex flex-col border border-border h-full cursor-pointer"
+            >
+            <div className={`h-64 w-full overflow-hidden relative flex items-center justify-center`} style={{ backgroundColor: agent.habitatColor || '#D6A3B9' }}>
+               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent z-10" />
+              {agent.image ? (
+                 <img src={agent.image.startsWith('http') ? agent.image : `http://localhost:3001${agent.image}`} alt={agent.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 relative z-0" />
+              ) : (
+                <div className="w-20 h-20 rounded-full" style={{ backgroundColor: agent.robeColor, boxShadow: "0 10px 20px rgba(0,0,0,0.1)" }}></div>
+              )}
+              
+              <div className="absolute top-3 right-3 z-20 flex gap-2">
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold backdrop-blur-md bg-white/90 shadow-sm ${agent.suggest_in_onboarding ? 'text-primary' : 'text-[#D96C3B]'}`}>
+                  {agent.suggest_in_onboarding ? 'Visible' : 'Hidden'}
+                </span>
+              </div>
+            </div>
+            
+            <div className="p-6 flex-1 flex flex-col pt-5">
+              <p className="text-textMuted text-sm font-medium mb-6 leading-relaxed line-clamp-2 text-center" title={agent.role}>{agent.role}</p>
+              
+              <div className={`mt-auto space-y-3`}>
+                <div className="flex items-start gap-2">
+                  <BookOpen size={16} className="text-primary mt-0.5 shrink-0" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {agent.library.map((book: any, i: number) => (
+                      <span key={i} className="text-xs px-2 py-1 bg-backgroundAlt border border-border rounded-lg text-textMuted font-medium">
+                        {typeof book === 'string' ? book : book.title}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Shield size={16} className="text-primary shrink-0" />
+                  <div className="flex gap-2">
+                    {Object.entries(agent.permissions || {}).map(([key, val]) => (
+                      val ? <span key={key} className="text-xs font-semibold text-textMain capitalize">{key}</span> : null
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+          </div>
+        ))}
       </div>
 
       {/* Editor Modal - SPLIT PANE STUDIO */}
@@ -273,11 +212,11 @@ export default function AgentManager() {
               initial={{ opacity: 0, y: 30, scale: 0.95 }} 
               animate={{ opacity: 1, y: 0, scale: 1 }} 
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
-              className="bg-background w-full max-w-7xl rounded-3xl shadow-2xl z-10 overflow-hidden flex h-[85vh]"
+              className="bg-background w-full max-w-6xl rounded-3xl shadow-2xl z-10 overflow-hidden flex h-[85vh]"
             >
               
               {/* LEFT PANE - THE 3D CANVAS */}
-              <div className="flex-1 bg-backgroundAlt relative overflow-hidden flex flex-col border-r border-border shadow-xl z-20">
+              <div className="flex-1 bg-backgroundAlt relative overflow-hidden flex flex-col">
                  <div className="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl border border-border shadow-sm">
                    <p className="font-bold text-textMain text-sm">3D Template Sandbox</p>
                  </div>
@@ -285,42 +224,32 @@ export default function AgentManager() {
                  <div className="flex-1" style={{ backgroundColor: editingAgent?.color || '#F5E6D8' }}>
                    <ModelErrorBoundary>
                      <Canvas camera={{ position: [2.5, 2, 2.5], fov: 40 }} shadows orthographic>
-                        <Suspense fallback={null}>
-                          <ambientLight intensity={1.5} />
-                          <directionalLight position={[5, 8, 5]} intensity={2.5} castShadow />
-                          
-                          {/* Terrarium */}
-                          <AdminTerrarium habitatColor={editingAgent?.habitatColor || '#D2D6C8'} size={2.5} />
-                          
-                          {/* Agent */}
-                          <AdminGLBAgent robeColor={editingAgent?.robeColor || '#888888'} />
-                          
-                          {/* Accessories */}
-                          {editingAgent?.accessories?.map((path: string, i: number) => (
-                            <SafeBillboard
-                              key={path}
-                              url={path.startsWith('http') ? path : `http://localhost:3001${path}`}
-                              position={[(i - ((editingAgent?.accessories?.length || 1) - 1) / 2) * 1.2, 1.5, 0]}
-                            />
-                          ))}
-                        </Suspense>
+                        <ambientLight intensity={1.5} />
+                        <directionalLight position={[5, 8, 5]} intensity={2.5} castShadow />
+                        
+                        {/* Terrarium */}
+                        <AdminTerrarium habitatColor={editingAgent?.habitatColor || '#D2D6C8'} size={2.5} />
+                        
+                        {/* Agent */}
+                        <AdminGLBAgent robeColor={editingAgent?.robeColor || '#888888'} />
+                        
+                        {/* Accessories */}
+                        {editingAgent?.accessories?.map((path: string, i: number) => (
+                          <SafeBillboard
+                            key={path}
+                            url={path.startsWith('http') ? path : `http://localhost:3001${path}`}
+                            position={[(i - ((editingAgent?.accessories?.length || 1) - 1) / 2) * 1.2, 1.5, 0]}
+                          />
+                        ))}
                      </Canvas>
                    </ModelErrorBoundary>
                  </div>
               </div>
               
               {/* RIGHT PANE - CONTROLS */}
-              <div className="w-[500px] bg-white flex flex-col relative z-10">
+              <div className="w-[450px] bg-white border-l border-border flex flex-col">
                 <div className="flex items-center justify-between p-5 border-b border-border bg-backgroundAlt/30">
-                   <div className="flex-1">
-                      <input 
-                        type="text" 
-                        value={editingAgent?.id || ''} 
-                        onChange={(e) => setEditingAgent({ ...editingAgent, id: e.target.value })}
-                        className="text-xl font-bold text-textMain bg-transparent border-none outline-none w-full"
-                        placeholder="Agent Role ID"
-                      />
-                   </div>
+                  <h2 className="text-xl font-bold text-textMain">{editingAgent?.id ? editingAgent.id : 'New Template'}</h2>
                   <button onClick={closeModal} className="text-textMuted hover:text-textMain p-1.5 rounded-full transition-colors">
                     <X size={20} className="stroke-[3px]" />
                   </button>
@@ -328,7 +257,7 @@ export default function AgentManager() {
                 
                 {/* TABS */}
                 <div className="flex border-b border-border">
-                  {['identity', 'accessories', 'files', 'knowledge'].map(tab => (
+                  {['identity', 'accessories', 'knowledge'].map(tab => (
                     <button 
                       key={tab} 
                       onClick={() => setActiveTab(tab as any)}
@@ -339,81 +268,89 @@ export default function AgentManager() {
                   ))}
                 </div>
 
-                <div className="p-6 overflow-y-auto flex-1 bg-white space-y-6 pb-20">
+                <div className="p-6 overflow-y-auto flex-1 bg-white space-y-6">
                   
                   {activeTab === 'identity' && (
                     <div className="space-y-6 animate-fade-in">
                       <div className="space-y-2">
                         <label className="text-sm font-bold text-textMain">Role Description</label>
-                        <textarea 
+                        <input 
+                          type="text" 
                           value={editingAgent?.role || ''} 
                           onChange={(e) => setEditingAgent({ ...editingAgent, role: e.target.value })}
-                          className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none resize-none h-24" 
-                          placeholder="A detailed description of what this agent does..."
+                          className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none" 
                         />
                       </div>
                       
-                      <div className="space-y-4 pt-2 border-t border-border">
-                         <div>
-                            <h3 className="text-sm font-bold text-textMain mb-1">Color Swatch</h3>
-                            <p className="text-xs text-textMuted">Select a curated palette for this archetype.</p>
-                         </div>
-                         <div className="grid grid-cols-4 gap-3">
-                            {SWATCHES.map((swatch) => {
-                               const isActive = editingAgent?.robeColor === swatch.robeColor && editingAgent?.color === swatch.color;
-                               return (
-                                  <button
-                                     key={swatch.name}
-                                     onClick={() => setEditingAgent({ 
-                                        ...editingAgent, 
-                                        color: swatch.color, 
-                                        robeColor: swatch.robeColor, 
-                                        accentColor: swatch.accentColor, 
-                                        habitatColor: swatch.habitatColor 
-                                     })}
-                                     className={`flex flex-col items-center gap-2 p-2 rounded-xl border-2 transition-all ${isActive ? 'border-primary bg-primary/5 shadow-sm' : 'border-border hover:border-black/20 hover:bg-black/5'}`}
-                                  >
-                                     <div className="w-12 h-12 rounded-full shadow-inner overflow-hidden flex relative">
-                                        <div className="w-1/2 h-full" style={{ backgroundColor: swatch.robeColor }}></div>
-                                        <div className="w-1/2 h-full" style={{ backgroundColor: swatch.color }}></div>
-                                        {isActive && (
-                                           <div className="absolute inset-0 bg-black/10 flex items-center justify-center">
-                                              <Check className="text-white" size={16} strokeWidth={4} />
-                                           </div>
-                                        )}
-                                     </div>
-                                     <span className="text-[10px] font-bold text-textMuted uppercase tracking-wider">{swatch.name}</span>
-                                  </button>
-                               )
-                            })}
-                         </div>
-                      </div>
-
-                      <div className="space-y-4 pt-4 border-t border-border">
-                         <div>
-                            <h3 className="text-sm font-bold text-textMain mb-1">Base Habitat</h3>
-                            <p className="text-xs text-textMuted">Select the 3D environment layout.</p>
-                         </div>
-                         <select 
-                            value={editingAgent?.habitatId || ''} 
-                            onChange={(e) => {
-                               const selected = globalHabitats.find(h => h.id.toString() === e.target.value);
-                               setEditingAgent({ 
-                                  ...editingAgent, 
-                                  habitatId: selected ? selected.id : null,
-                                  habitatLabel: selected ? selected.name : ''
-                               });
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold text-textMain">Agent Image</label>
+                        <div className="flex gap-4 items-center">
+                          {editingAgent?.image && (
+                            <img src={editingAgent.image.startsWith('http') ? editingAgent.image : `http://localhost:3001${editingAgent.image}`} className="w-16 h-16 rounded-xl object-cover border border-border shrink-0" />
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const formData = new FormData();
+                              formData.append('image', file);
+                              try {
+                                const res = await fetch('http://localhost:3001/api/upload-agent-image', {
+                                  method: 'POST',
+                                  body: formData
+                                });
+                                const data = await res.json();
+                                if (data.success) {
+                                  setEditingAgent({ ...editingAgent, image: data.imagePath });
+                                }
+                              } catch (err) {
+                                console.error(err);
+                              }
                             }}
-                            className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm font-bold text-textMain focus:outline-none"
-                         >
-                            <option value="">Default Pedestal</option>
-                            {globalHabitats.map(h => (
-                               <option key={h.id} value={h.id}>{h.name}</option>
-                            ))}
-                         </select>
+                            className="w-full bg-background border border-border rounded-xl px-4 py-2 text-sm text-textMain font-medium focus:outline-none" 
+                          />
+                        </div>
                       </div>
-
-                      <div className="flex gap-4 pt-4 border-t border-border">
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-textMain uppercase tracking-wide">Base Config</label>
+                          <div className="flex gap-2">
+                            <input type="color" value={editingAgent?.color || '#000000'} onChange={(e) => setEditingAgent({ ...editingAgent, color: e.target.value })} className="w-8 h-8 rounded border border-border p-0.5 cursor-pointer" />
+                            <input type="text" value={editingAgent?.color || ''} onChange={(e) => setEditingAgent({ ...editingAgent, color: e.target.value })} className="flex-1 bg-white border border-border rounded-lg px-2 text-xs font-medium focus:outline-none" />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-textMain uppercase tracking-wide">Robe Override</label>
+                          <div className="flex gap-2">
+                            <input type="color" value={editingAgent?.robeColor || '#000000'} onChange={(e) => setEditingAgent({ ...editingAgent, robeColor: e.target.value })} className="w-8 h-8 rounded border border-border p-0.5 cursor-pointer" />
+                            <input type="text" value={editingAgent?.robeColor || ''} onChange={(e) => setEditingAgent({ ...editingAgent, robeColor: e.target.value })} className="flex-1 bg-white border border-border rounded-lg px-2 text-xs font-medium focus:outline-none" />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-textMain uppercase tracking-wide">Accent Detail</label>
+                          <div className="flex gap-2">
+                            <input type="color" value={editingAgent?.accentColor || '#000000'} onChange={(e) => setEditingAgent({ ...editingAgent, accentColor: e.target.value })} className="w-8 h-8 rounded border border-border p-0.5 cursor-pointer" />
+                            <input type="text" value={editingAgent?.accentColor || ''} onChange={(e) => setEditingAgent({ ...editingAgent, accentColor: e.target.value })} className="flex-1 bg-white border border-border rounded-lg px-2 text-xs font-medium focus:outline-none" />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-textMain uppercase tracking-wide">Habitat Ground</label>
+                          <div className="flex gap-2">
+                            <input type="color" value={editingAgent?.habitatColor || '#000000'} onChange={(e) => setEditingAgent({ ...editingAgent, habitatColor: e.target.value })} className="w-8 h-8 rounded border border-border p-0.5 cursor-pointer" />
+                            <input type="text" value={editingAgent?.habitatColor || ''} onChange={(e) => setEditingAgent({ ...editingAgent, habitatColor: e.target.value })} className="flex-1 bg-white border border-border rounded-lg px-2 text-xs font-medium focus:outline-none" />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-textMain uppercase tracking-wide">Habitat Label</label>
+                        <input type="text" value={editingAgent?.habitatLabel || ''} onChange={(e) => setEditingAgent({ ...editingAgent, habitatLabel: e.target.value })} className="w-full bg-white border border-border rounded-lg px-3 py-2 text-xs font-medium focus:outline-none" />
+                      </div>
+                      
+                      <div className="flex gap-4">
                         <div className="flex-1 flex items-center justify-between bg-primary/5 border border-primary/20 p-4 rounded-xl">
                           <div>
                             <h4 className="text-textMain font-bold text-sm">Onboarding</h4>
@@ -469,7 +406,7 @@ export default function AgentManager() {
                                          setEditingAgent({ ...editingAgent, accessories: [...current, path] });
                                       }
                                    }}
-                                   className={`aspect-square rounded-lg border-2 overflow-hidden transition-all duration-200 ${isAttached ? 'border-primary ring-2 ring-primary/20 shadow-md scale-105 relative z-10 bg-primary/5' : 'border-border bg-white hover:border-black/20'}`}
+                                   className={`aspect-square rounded-lg border-2 overflow-hidden transition-all duration-200 ${isAttached ? 'border-primary ring-2 ring-primary/20 shadow-md scale-105 relative z-10' : 'border-black/5 hover:border-black/20'}`}
                                  >
                                     <img src={`http://localhost:3001${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
                                     {isAttached && <span className="absolute bottom-1 right-1 w-2 h-2 rounded-full bg-primary" />}
@@ -481,42 +418,13 @@ export default function AgentManager() {
                     </div>
                   )}
 
-                  {activeTab === 'files' && (
-                     <div className="space-y-6 animate-fade-in">
-                        <div className="space-y-2">
-                           <div>
-                              <h3 className="text-sm font-bold text-textMain">Identity Prompt (<code className="text-primary text-xs">identity.md</code>)</h3>
-                              <p className="text-xs text-textMuted">The core personality injected directly into the system prompt.</p>
-                           </div>
-                           <textarea 
-                              value={editingAgent?.identity_template || ''} 
-                              onChange={(e) => setEditingAgent({ ...editingAgent, identity_template: e.target.value })}
-                              className="w-full bg-background border border-border rounded-xl p-4 text-textMain font-mono text-xs focus:outline-none min-h-[150px] resize-y"
-                              placeholder="You are a helpful assistant..."
-                           />
-                        </div>
-
-                        <div className="space-y-2 pt-4 border-t border-border">
-                           <div>
-                              <h3 className="text-sm font-bold text-textMain">Soul Prompt (<code className="text-primary text-xs">soul.md</code>)</h3>
-                              <p className="text-xs text-textMuted">The inner monologue and advanced tool-use reasoning instructions.</p>
-                           </div>
-                           <textarea 
-                              value={editingAgent?.soul_template || ''} 
-                              onChange={(e) => setEditingAgent({ ...editingAgent, soul_template: e.target.value })}
-                              className="w-full bg-background border border-border rounded-xl p-4 text-textMain font-mono text-xs focus:outline-none min-h-[150px] resize-y"
-                              placeholder="Internal reasoning instructions..."
-                           />
-                        </div>
-                     </div>
-                  )}
-
                   {activeTab === 'knowledge' && (
                     <div className="space-y-8 animate-fade-in">
                        <div className="space-y-3">
                          <label className="text-sm font-bold text-textMain">Search & Add Books to Knowledge Base</label>
                          <p className="text-xs text-textMuted mb-2">Books added here will be saved to the global library and automatically tagged for {editingAgent?.id}.</p>
                          <BookSearch onAdd={async (newBooks) => {
+                           // Inject the current editingAgent.id into the recommendedAgents array
                            const customizedBooks = newBooks.map(b => ({
                              ...b,
                              recommendedAgents: [editingAgent.id]
@@ -568,6 +476,7 @@ export default function AgentManager() {
                                     </div>
                                   </div>
                                   <button onClick={async () => {
+                                     // Remove tag
                                      const updatedLibrary = globalLibrary.map(b => {
                                         if (b.key === book.key) {
                                            return { ...b, recommendedAgents: b.recommendedAgents.filter((a: string) => a !== editingAgent.id) };
@@ -591,8 +500,8 @@ export default function AgentManager() {
                   
                 </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-5 border-t border-border bg-white flex justify-end gap-3 z-20">
-                  <button onClick={closeModal} className="px-5 py-2.5 rounded-xl text-sm font-bold text-textMuted hover:bg-backgroundAlt hover:shadow-sm border border-transparent">Cancel</button>
+                <div className="p-5 border-t border-border bg-backgroundAlt/30 flex justify-end gap-3 mt-auto">
+                  <button onClick={closeModal} className="px-5 py-2.5 rounded-xl text-sm font-bold text-textMuted hover:bg-white hover:shadow-sm border border-transparent">Cancel</button>
                   <button onClick={handleSave} className="px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-primary hover:bg-primaryHover shadow-lg shadow-primary/20 active:scale-95">Save Template</button>
                 </div>
               </div>

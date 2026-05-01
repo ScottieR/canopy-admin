@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Layers, Plus, Trash2, Save, Move3d } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Layers, Plus, Trash2, Save, Move3d, X, LayoutTemplate } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Canvas } from '@react-three/fiber';
+import { HabitatPlacementScene } from '../components/3d/HabitatPlacementScene';
 
 export default function HabitatManager() {
   const [habitats, setHabitats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingPlacement, setEditingPlacement] = useState<number | null>(null);
 
   useEffect(() => {
     fetchHabitats();
@@ -127,8 +130,16 @@ export default function HabitatManager() {
             <div className="w-px bg-outline-variant/20 mx-2"></div>
 
             <div className="w-[300px]">
-              <div className="flex items-center gap-2 text-xs font-bold text-textMuted mb-4 uppercase tracking-wider">
-                <Move3d size={14} /> Default Lobster Placement
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-textMuted uppercase tracking-wider">
+                  <Move3d size={14} /> Default Lobster Placement
+                </div>
+                <button 
+                  onClick={() => setEditingPlacement(index)}
+                  className="bg-primary/10 text-primary hover:bg-primary/20 transition-colors px-2 py-1 rounded flex items-center gap-1 text-[10px] font-bold uppercase"
+                >
+                  <LayoutTemplate size={12} /> Visual Editor
+                </button>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {['x', 'y', 'z', 'rotationY'].map((axis) => (
@@ -157,6 +168,56 @@ export default function HabitatManager() {
           </div>
         ))}
       </div>
+
+      <AnimatePresence>
+        {editingPlacement !== null && habitats[editingPlacement] && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-8">
+             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-5xl h-[70vh] relative flex flex-col">
+                <button onClick={() => { setEditingPlacement(null); saveHabitats(habitats); }} className="absolute top-4 right-4 text-textMuted hover:text-textMain z-10 bg-white/80 backdrop-blur rounded-full p-1"><X size={24}/></button>
+                
+                <div className="bg-surface border-b border-outline-variant/30 p-6 flex justify-between items-center shrink-0 z-10 shadow-sm relative">
+                   <div>
+                     <h3 className="font-bold text-xl text-textMain flex items-center gap-2"><Move3d size={20} className="text-primary"/> Visual Placement</h3>
+                     <p className="text-xs text-textMuted mt-1">Drag the lobster to set the default spawn point for <span className="font-bold text-textMain">{habitats[editingPlacement].name}</span>.</p>
+                   </div>
+                   
+                   <div className="flex items-center gap-4">
+                     <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-border shadow-sm">
+                       <span className="text-xs font-bold text-textMuted uppercase">Rot Y</span>
+                       <input 
+                         type="range" min="-3.14" max="3.14" step="0.1"
+                         value={habitats[editingPlacement].placement.rotationY || 0}
+                         onChange={(e) => updateHabitat(editingPlacement, 'placement.rotationY', e.target.value)}
+                         className="w-24 accent-primary"
+                       />
+                     </div>
+                     <button onClick={() => { setEditingPlacement(null); saveHabitats(habitats); }} className="bg-primary hover:bg-primaryHover text-white font-bold py-2 px-6 rounded-xl transition-colors shadow-sm text-sm">
+                        Save Placement
+                     </button>
+                   </div>
+                </div>
+
+                <div className="flex-1 bg-black/5 relative">
+                   <Canvas shadows camera={{ position: [0, 4, 8], fov: 45 }}>
+                      <HabitatPlacementScene 
+                        habitatPath={habitats[editingPlacement].path}
+                        habitatType={habitats[editingPlacement].type}
+                        placement={habitats[editingPlacement].placement}
+                        onPlacementChange={(newPlacement) => {
+                           const newHabitats = [...habitats];
+                           newHabitats[editingPlacement].placement = newPlacement;
+                           setHabitats(newHabitats);
+                        }}
+                      />
+                   </Canvas>
+                   <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-mono text-textMain shadow-sm pointer-events-none">
+                      X: {habitats[editingPlacement].placement.x.toFixed(2)} | Y: {habitats[editingPlacement].placement.y.toFixed(2)} | Z: {habitats[editingPlacement].placement.z.toFixed(2)}
+                   </div>
+                </div>
+             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

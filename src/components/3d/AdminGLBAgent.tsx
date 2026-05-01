@@ -16,7 +16,7 @@ export function AdminGLBAgent({
   const groupRef = useRef<THREE.Group>(null);
   
   // Load the universal rigged body.
-  const { scene, animations } = useGLTF("http://localhost:3001/agents/BaseLobsterRigged.glb");
+  const { scene, animations } = useGLTF("http://localhost:3001/models/lobsters/BaseLobsterRigged.glb");
 
   // Clone efficiently so each preview gets its own distinct colored materials
   const clonedScene = useMemo(() => {
@@ -98,4 +98,4 @@ export function AdminGLBAgent({
   );
 }
 
-useGLTF.preload("http://localhost:3001/agents/BaseLobsterRigged.glb");
+useGLTF.preload("http://localhost:3001/models/lobsters/BaseLobsterRigged.glb");

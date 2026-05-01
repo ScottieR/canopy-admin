@@ -16,7 +16,7 @@ const navItems = [
   { path: '/agents', label: 'Agent Templates', icon: Users },
   { path: '/models', label: 'AI Services & Models', icon: Cpu },
   { path: '/library', label: 'Book Library', icon: BookOpen },
-  { path: '/accessories', label: 'Cosmetics Catalog', icon: Shirt },
+  { path: '/accessories', label: 'Agent Styling', icon: Shirt },
   { path: '/habitats', label: 'Habitat Manager', icon: Layers },
   { path: '/connectors', label: 'Connectors', icon: Layers },
   { path: '/agent-files', label: 'Default Agent Files', icon: FileText },

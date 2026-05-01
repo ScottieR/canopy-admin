@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 
@@ -70,6 +72,7 @@ if (!fs.existsSync(ACCESSORIES_FILE)) {
 app.use(cors());
 app.use(express.json());
 app.use('/agents', express.static(path.join(__dirname, '../canopy/public/agents')));
+app.use('/models', express.static(path.join(__dirname, '../canopy/public/models')));
 app.use('/accessories', express.static(path.join(__dirname, '../canopy/public/accessories')));
 
 // Helper to create CRUD routes for a given file
@@ -166,7 +169,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
        const companionName = newConnector.id.charAt(0).toUpperCase() + newConnector.id.slice(1) + 'Companion.tsx';
        const companionPath = path.join(__dirname, '../canopy/src/components/Companion', companionName);
        if (!fs.existsSync(companionPath)) {
-         const template = \`import { useState } from "react";
+         const template = `import { useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -218,7 +221,7 @@ export function \${companionName.replace('.tsx','')} () {
     </div>
   );
 }
-\`;
+`;
          fs.writeFileSync(companionPath, template, 'utf8');
        }
     }
@@ -432,7 +435,35 @@ ${latestTelemetryPayload.substring(0, 8000)}
 createJsonApi('/api/agents', AGENTS_FILE);
 createJsonApi('/api/library', LIBRARY_FILE);
 createJsonApi('/api/settings', SETTINGS_FILE);
-createJsonApi('/api/stats', STATS_FILE);
+app.get('/api/stats', (req, res) => {
+  let stats = { tokenUsageData: [], personaAdoptionData: [] };
+  try {
+    if (fs.existsSync(STATS_FILE)) {
+      stats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    }
+  } catch(e) {
+    console.error("Failed to read static stats:", e);
+  }
+
+  try {
+    const dbPath = path.join(os.homedir(), 'Library/Application Support/Canopy/canopy.db');
+    if (fs.existsSync(dbPath)) {
+      const output = execSync(`sqlite3 "${dbPath}" "SELECT role, COUNT(*) FROM agents GROUP BY role ORDER BY COUNT(*) DESC;"`, { encoding: 'utf8' });
+      const lines = output.trim().split('\n').filter(Boolean);
+      const personaAdoptionData = lines.map(line => {
+        const [role, count] = line.split('|');
+        return { name: role, count: parseInt(count, 10) };
+      });
+      if (personaAdoptionData.length > 0) {
+        stats.personaAdoptionData = personaAdoptionData;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to fetch real persona adoption data:", e);
+  }
+
+  res.json(stats);
+});
 createJsonApi('/api/pricing', PRICING_FILE);
 createJsonApi('/api/models', MODELS_FILE);
 createJsonApi('/api/accessories', ACCESSORIES_FILE);

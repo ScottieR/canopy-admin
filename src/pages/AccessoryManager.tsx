@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, EyeOff, Sparkles, Sliders, X } from 'lucide-react';
+import { Save, EyeOff, Sparkles, X, Loader2, ArrowRight } from 'lucide-react';
 import { AccessoryStudio } from '../components/AccessoryStudio';
+import { AccessoryPlacementScene } from '../components/3d/AccessoryPlacementScene';
+import { Canvas } from '@react-three/fiber';
 
 interface AccessoriesData {
-  items: Record<string, { isVisible: boolean, offset?: [number, number, number] }>;
+  items: Record<string, { isVisible: boolean, offset?: [number, number, number], bone?: string }>;
   defaults: Record<string, string[]>;
 }
 
@@ -71,17 +73,6 @@ export default function AccessoryManager() {
     });
   };
   
-  const updateOffset = (axis: 0|1|2, val: number) => {
-    if (!data || !editingPath) return;
-    const current = data.items[editingPath]?.offset || [0, 0, 0];
-    const next: [number, number, number] = [...current] as [number, number, number];
-    next[axis] = val;
-    setData({
-      ...data,
-      items: { ...data.items, [editingPath]: { ...data.items[editingPath], offset: next } }
-    });
-  };
-
   if (!data) {
     return <div className="p-10 flex justify-center text-textMuted">Loading Catalog...</div>;
   }
@@ -93,7 +84,7 @@ export default function AccessoryManager() {
       
       <div className="flex justify-between items-end border-b border-outline-variant/30 pb-6 mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-textMain mb-2">Cosmetics Catalog</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-textMain mb-2">Agent Styling</h1>
           <p className="text-textMuted font-medium">Curate the master accessory set, generate 3D models, and build archetype loadouts.</p>
         </div>
         <button 
@@ -143,18 +134,12 @@ export default function AccessoryManager() {
                 return (
                   <div key={path} className="relative group">
                     <div 
-                      onClick={() => toggleVisibility(path)}
+                      onClick={() => setEditingPath(path)}
                       className={`relative aspect-square rounded-xl flex items-center justify-center cursor-pointer transition overflow-hidden ${isVisible ? "bg-white border-2 border-transparent shadow-sm hover:border-primary/20" : "bg-outline-variant/10 border-2 border-outline-variant/20 opacity-40 hover:opacity-100 mix-blend-luminosity hover:mix-blend-normal"}`}
                     >
                        <img src={`http://localhost:3001${path}`} alt="Accessory" className="w-[80%] h-[80%] object-contain" />
                        {!isVisible && <div className="absolute inset-0 flex items-center justify-center bg-black/5"><EyeOff size={16} className="text-textMain/50" /></div>}
                     </div>
-                    <button 
-                      onClick={() => setEditingPath(path)}
-                      className="absolute -bottom-2 -right-2 bg-white border border-border p-1.5 rounded-full shadow-md text-textMuted hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Sliders size={12} />
-                    </button>
                   </div>
                 )
              })}
@@ -216,47 +201,163 @@ export default function AccessoryManager() {
          </div>
       )}
 
-      {/* Offset Editing Modal */}
+      {/* Detail & 3D Placement Modal */}
       <AnimatePresence>
         {editingPath && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4">
-             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full relative">
-                <button onClick={() => setEditingPath(null)} className="absolute top-4 right-4 text-textMuted hover:text-textMain"><X size={20}/></button>
-                <h3 className="font-bold text-xl mb-1 text-textMain">Attachment Offsets</h3>
-                <p className="text-xs text-textMuted mb-6 font-mono break-all">{editingPath}</p>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-8">
+             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-6xl h-[80vh] relative flex">
+                <button onClick={() => { setEditingPath(null); handleSave(); }} className="absolute top-4 right-4 text-textMuted hover:text-textMain z-10"><X size={24}/></button>
                 
-                <div className="flex gap-6 mb-6">
-                  <div className="w-24 h-24 bg-background border border-border rounded-xl flex items-center justify-center shrink-0">
-                    <img src={`http://localhost:3001${editingPath}`} className="w-20 h-20 object-contain" />
-                  </div>
-                  <div className="flex-1 space-y-4">
-                     {(['X', 'Y', 'Z'] as const).map((axis, i) => {
-                       const val = data.items[editingPath]?.offset?.[i] || 0;
-                       return (
-                         <div key={axis}>
-                           <div className="flex justify-between text-xs font-bold mb-1">
-                             <span>{axis} Axis</span>
-                             <span className="font-mono text-primary">{val.toFixed(2)}</span>
-                           </div>
-                           <input 
-                             type="range" min="-5" max="5" step="0.1" 
-                             value={val}
-                             onChange={(e) => updateOffset(i as 0|1|2, parseFloat(e.target.value))}
-                             className="w-full accent-primary"
-                           />
-                         </div>
-                       )
-                     })}
-                  </div>
+                {/* Left Pane: 2D & Bake */}
+                <div className="w-1/3 bg-surface border-r border-outline-variant/30 p-8 flex flex-col">
+                   <h3 className="font-bold text-2xl mb-2 text-textMain">Accessory Detail</h3>
+                   <p className="text-xs text-textMuted mb-8 font-mono break-all">{editingPath}</p>
+                   
+                   <div className="aspect-square bg-white border border-border rounded-2xl flex items-center justify-center mb-6 shadow-sm overflow-hidden p-4">
+                     <img src={`http://localhost:3001${editingPath}`} className="w-full h-full object-contain" />
+                   </div>
+
+                   <AccessoryBakeAction path={editingPath} onBakeComplete={() => {
+                     // Force re-render of 3D scene
+                     setEditingPath(editingPath);
+                   }} />
+
+                   <div className="mt-auto space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-textMuted uppercase mb-1 block">Attachment Bone</label>
+                        <select 
+                           value={data.items[editingPath]?.bone || "Head"}
+                           onChange={(e) => {
+                             if (!data) return;
+                             setData({
+                               ...data,
+                               items: { ...data.items, [editingPath]: { ...data.items[editingPath], bone: e.target.value } }
+                             });
+                           }}
+                           className="w-full bg-white border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary"
+                        >
+                           <option value="Head">Head</option>
+                           <option value="Spine">Spine (Back)</option>
+                           <option value="Hand_R">Right Hand</option>
+                           <option value="Hand_L">Left Hand</option>
+                           <option value="Root">Root (Floor)</option>
+                        </select>
+                      </div>
+
+                      <button 
+                        onClick={() => toggleVisibility(editingPath)}
+                        className={`w-full font-bold py-3 rounded-xl transition-colors shadow-sm border-2 ${data.items[editingPath]?.isVisible !== false ? 'bg-white border-border text-textMuted hover:bg-black/5' : 'bg-primary/10 border-primary/20 text-primary hover:bg-primary/20'}`}
+                      >
+                        {data.items[editingPath]?.isVisible !== false ? "Hide Globally" : "Show Globally"}
+                      </button>
+
+                      <button onClick={() => { setEditingPath(null); handleSave(); }} className="w-full bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-xl transition-colors shadow-md">
+                        Save Placement
+                      </button>
+                   </div>
                 </div>
-                
-                <button onClick={() => { setEditingPath(null); handleSave(); }} className="w-full bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-xl transition-colors">
-                  Save Placement
-                </button>
+
+                {/* Right Pane: 3D Scene */}
+                <div className="flex-1 bg-black/5 relative">
+                   <Canvas shadows camera={{ position: [0, 1.5, 4], fov: 45 }}>
+                      <Suspense fallback={null}>
+                        <AccessoryPlacementScene 
+                          accessoryGlbPath={`http://localhost:3001${editingPath.replace('.png', '.glb')}`}
+                          boneName={data.items[editingPath]?.bone || "Head"}
+                          offset={data.items[editingPath]?.offset || [0, 0, 0]}
+                          onOffsetChange={(newOffset) => {
+                             if (!data) return;
+                             setData({
+                                ...data,
+                                items: { ...data.items, [editingPath]: { ...data.items[editingPath], offset: newOffset } }
+                             });
+                          }}
+                        />
+                      </Suspense>
+                   </Canvas>
+                   <div className="absolute top-4 left-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-mono text-textMain shadow-sm">
+                      Offset: {data.items[editingPath]?.offset?.map(v => v.toFixed(2)).join(', ') || "0.00, 0.00, 0.00"}
+                   </div>
+                </div>
              </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+function AccessoryBakeAction({ path, onBakeComplete }: { path: string, onBakeComplete: () => void }) {
+  const [bakingState, setBakingState] = useState<"idle" | "starting" | "meshing" | "done" | "failed">("idle");
+  const [glbExists, setGlbExists] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Check if glb exists
+    fetch(`http://localhost:3001${path.replace('.png', '.glb')}`, { method: 'HEAD' })
+      .then(res => {
+         setGlbExists(res.ok);
+         if (res.ok) setBakingState("done");
+      })
+      .catch(() => setGlbExists(false));
+  }, [path]);
+
+  const handleBake = async () => {
+    setBakingState("starting");
+    try {
+      const imageUrl = `http://localhost:3001${path}`;
+      const res = await fetch("http://localhost:3001/api/meshy-task", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      
+      const taskId = data.taskId;
+      setBakingState("meshing");
+      
+      // Poll
+      const poll = setInterval(async () => {
+        const checkRes = await fetch(`http://localhost:3001/api/meshy-check/${taskId}`);
+        const checkData = await checkRes.json();
+        if (checkData.status === "SUCCEEDED") {
+          clearInterval(poll);
+          setBakingState("done");
+          setGlbExists(true);
+          onBakeComplete();
+        } else if (checkData.status === "FAILED") {
+          clearInterval(poll);
+          setBakingState("failed");
+        }
+      }, 3000);
+      
+    } catch (e: any) {
+      alert("Failed to bake to 3D: " + e.message);
+      setBakingState("failed");
+    }
+  };
+
+  return (
+    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-5 mb-4">
+       <div className="flex items-center gap-2 mb-2">
+         <Sparkles size={18} className="text-primary" />
+         <h4 className="text-textMain font-bold text-sm">Meshy 3D Generation</h4>
+       </div>
+       {glbExists === true || bakingState === "done" ? (
+         <p className="text-xs text-green-600 font-bold mb-4">✅ 3D Model Available</p>
+       ) : (
+         <p className="text-xs text-textMuted mb-4">No 3D asset found for this accessory. Bake it to enable dynamic attachment.</p>
+       )}
+       
+       <button 
+          onClick={handleBake}
+          disabled={bakingState !== "idle" && bakingState !== "failed"}
+          className="bg-white text-black font-bold text-xs px-3 py-2.5 rounded-lg w-full flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 border border-border hover:bg-black/5 transition"
+        >
+          {bakingState === "starting" ? "Sending to Meshy..." :
+           bakingState === "meshing" ? <><Loader2 size={12} className="animate-spin" /> Baking in Progress...</> :
+           bakingState === "done" ? "Regenerate 3D Model" :
+           <>Bake to 3D <ArrowRight size={12} /></>}
+        </button>
+    </div>
   );
 }
