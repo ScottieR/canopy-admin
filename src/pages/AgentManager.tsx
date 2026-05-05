@@ -81,6 +81,7 @@ export default function AgentManager() {
     permissions: val.permissions || { calendar: true, files: true, web: true, email: false }, 
     status: val.suggest_in_onboarding ? 'Active' : 'Archived',
     suggest_in_onboarding: val.suggest_in_onboarding ?? true,
+    recommended_isolated: val.recommended_isolated ?? false,
     color: val.color || '#218380',
     robeColor: val.robeColor || '#218380',
     accentColor: val.accentColor || '#cccccc',
@@ -116,6 +117,7 @@ export default function AgentManager() {
           id: 'New Agent',
           role: '',
           suggest_in_onboarding: true,
+          recommended_isolated: false,
           color: SWATCHES[0].color,
           robeColor: SWATCHES[0].robeColor,
           accentColor: SWATCHES[0].accentColor,
@@ -150,6 +152,7 @@ export default function AgentManager() {
       description: editingAgent.role,
       image: editingAgent.image,
       suggest_in_onboarding: editingAgent.suggest_in_onboarding,
+      recommended_isolated: editingAgent.recommended_isolated,
       library: editingAgent.library,
       readwise_enabled: editingAgent.readwise_enabled,
       color: editingAgent.color,
@@ -421,6 +424,16 @@ export default function AgentManager() {
                           </div>
                           <button onClick={() => setEditingAgent({ ...editingAgent, suggest_in_onboarding: !editingAgent.suggest_in_onboarding })} className={`transition-colors ${editingAgent?.suggest_in_onboarding ? 'text-primary' : 'text-textMuted'}`}>
                             {editingAgent?.suggest_in_onboarding ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
+                          </button>
+                        </div>
+
+                        <div className="flex-1 flex items-center justify-between bg-[#D4A04A]/10 border border-[#D4A04A]/30 p-4 rounded-xl">
+                          <div>
+                            <h4 className="text-textMain font-bold text-sm">Isolation</h4>
+                            <p className="text-textMuted text-xs font-medium mt-1">Sandbox by default.</p>
+                          </div>
+                          <button onClick={() => setEditingAgent({ ...editingAgent, recommended_isolated: !editingAgent.recommended_isolated })} className={`transition-colors ${editingAgent?.recommended_isolated ? 'text-[#D4A04A]' : 'text-textMuted'}`}>
+                            {editingAgent?.recommended_isolated ? <ToggleRight size={36} /> : <ToggleLeft size={36} />}
                           </button>
                         </div>
                         

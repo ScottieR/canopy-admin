@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Plus, Trash2, Tag } from 'lucide-react';
+import { BookOpen, Plus, Trash2 } from 'lucide-react';
 import BookSearch from '../components/BookSearch';
 import type { BookSchema } from '../components/BookSearch';
 
