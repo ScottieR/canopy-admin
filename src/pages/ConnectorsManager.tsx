@@ -7,7 +7,7 @@ export function ConnectorsManager() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/connectors')
+    fetch('/api/connectors')
       .then(res => res.json())
       .then(data => setConnectors(Array.isArray(data) ? data : []))
       .catch(console.error);
@@ -17,7 +17,7 @@ export function ConnectorsManager() {
     if (!prompt) return;
     setGenerating(true);
     try {
-      const res = await fetch('http://localhost:3001/api/connectors/generate', {
+      const res = await fetch('/api/connectors/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
@@ -39,7 +39,7 @@ export function ConnectorsManager() {
   const toggleVisibility = async (id: string) => {
     const next = connectors.map(c => c.id === id ? { ...c, isVisible: !c.isVisible } : c);
     setConnectors(next);
-    await fetch('http://localhost:3001/api/connectors', {
+    await fetch('/api/connectors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next)

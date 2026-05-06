@@ -14,7 +14,7 @@ export default function AgentFilesManager() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/settings')
+    fetch('/api/settings')
       .then(r => r.json())
       .then(data => {
         if (Object.keys(data).length > 0) {
@@ -40,7 +40,7 @@ export default function AgentFilesManager() {
       // Clean up old userTemplate if it exists to keep settings.json tidy
       delete newSettings.userTemplate;
       
-      await fetch('http://localhost:3001/api/settings', {
+      await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSettings)

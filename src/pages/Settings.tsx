@@ -13,7 +13,7 @@ export default function Settings() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/settings')
+    fetch('/api/settings')
       .then(r => r.json())
       .then(data => {
         if (Object.keys(data).length > 0) setSettings(data);
@@ -24,7 +24,7 @@ export default function Settings() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await fetch('http://localhost:3001/api/settings', {
+      await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)

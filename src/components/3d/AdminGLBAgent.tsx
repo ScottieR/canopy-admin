@@ -6,17 +6,31 @@ import { SkeletonUtils } from "three-stdlib";
 // Maintain a module-level stagger so each agent drops into the scene exactly 100ms out of phase
 let globalAnimationStagger = 0;
 
-export function AdminGLBAgent({ 
-  robeColor, 
-  forceAnimation = "Long_Breathe_and_Look_Around" 
-}: { 
-  robeColor?: string, 
-  forceAnimation?: string 
+export function AdminGLBAgent({
+  robeColor,
+  forceAnimation = "Long_Breathe_and_Look_Around",
+  accessories = [],
+  accessoryData = null,
+  animated = true,
+  transformRef,
+  transformAccessoryPath,
+  modelScale = 0.5,
+  modelPosition = [0, -0.23, 0]
+}: {
+  robeColor?: string,
+  forceAnimation?: string,
+  accessories?: string[],
+  accessoryData?: any,
+  animated?: boolean,
+  transformRef?: React.Ref<THREE.Group>,
+  transformAccessoryPath?: string,
+  modelScale?: number,
+  modelPosition?: [number, number, number]
 }) {
   const groupRef = useRef<THREE.Group>(null);
-  
+
   // Load the universal rigged body.
-  const { scene, animations } = useGLTF("http://localhost:3001/models/lobsters/BaseLobsterRigged.glb");
+  const { scene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb");
 
   // Clone efficiently so each preview gets its own distinct colored materials
   const clonedScene = useMemo(() => {
@@ -74,28 +88,46 @@ export function AdminGLBAgent({
       const fuzzy = names.find(n => n.includes("Breathe") || n.includes("Idle"));
       if (fuzzy) activeActionName = fuzzy;
     }
-    
+
     // Hard fallback patch just in case
     if (!actions[activeActionName]) {
       activeActionName = names[0];
     }
-    
+
     const action = actions[activeActionName];
 
     if (action) {
-      globalAnimationStagger += 0.1;
-      action.reset().fadeIn(0.5).play();
-      action.time = globalAnimationStagger % action.getClip().duration;
+      if (animated) {
+        globalAnimationStagger += 0.1;
+        action.reset().fadeIn(0.5).play();
+        action.time = globalAnimationStagger % action.getClip().duration;
+      } else {
+        action.stop();
+      }
     }
 
     return () => { if (action) action.fadeOut(0.5); };
   }, [actions, names, forceAnimation]);
 
   return (
-    <group ref={groupRef} position={[0, -0.23, 0]} scale={0.5} dispose={null}>
+    <group ref={groupRef} position={modelPosition} scale={modelScale} dispose={null}>
       <primitive object={clonedScene} />
+      {accessories.map((acc, i) => {
+        const itemData = accessoryData?.items?.[acc];
+        console.log(`[AdminGLBAgent] Rendering accessory: ${acc}`, { scale: itemData?.scale, offset: itemData?.offset });
+        const isEdited = acc === transformAccessoryPath;
+        return <AttachedAccessory 
+          key={`${acc}-${i}`} 
+          path={acc} 
+          accessoryData={accessoryData} 
+          clonedSceneRoot={clonedScene} 
+          transformRef={isEdited ? transformRef : undefined}
+        />;
+      })}
     </group>
   );
 }
 
-useGLTF.preload("http://localhost:3001/models/lobsters/BaseLobsterRigged.glb");
+import { AttachedAccessory } from '../../../../canopy/src/components/World/AttachedAccessory';
+
+useGLTF.preload("/models/lobsters/BaseLobsterRigged.glb");

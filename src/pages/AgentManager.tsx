@@ -1,14 +1,17 @@
 import { useState, useEffect, Component, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, BookOpen, ToggleRight, ToggleLeft, Edit3, Check } from 'lucide-react';
+import { Plus, X, BookOpen, ToggleRight, ToggleLeft, Edit3, Check, Sparkles, Search } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
+import { OrbitControls, useGLTF } from '@react-three/drei';
 import { AdminGLBAgent } from '../components/3d/AdminGLBAgent';
 import { AdminTerrarium } from '../components/3d/AdminTerrarium';
 import { SafeBillboard } from '../components/3d/SafeBillboard';
 import { AccessoryStudio } from '../components/AccessoryStudio';
 import RAW_AGENT_TYPE_INFO from '../../../shared/agents.json';
 import BookSearch from '../components/BookSearch';
+
+const IMG_BASE = 'http://localhost:3001';
 
 const SWATCHES = [
   { name: 'Sage', color: '#BFCB75', robeColor: '#A5B55A', accentColor: '#E5EEAF', habitatColor: '#D8E38E' },
@@ -40,6 +43,13 @@ class ModelErrorBoundary extends Component<{children: ReactNode}, {hasError: boo
   }
 }
 
+function HabitatPreview({ habitatId, habitats }: { habitatId?: string | null, habitats: any[] }) {
+  const habitat = habitats.find(h => h.id === habitatId);
+  if (!habitat || !habitat.path) return null;
+  const { scene } = useGLTF(`http://localhost:3001${habitat.path}`);
+  return <primitive object={scene} />;
+}
+
 export default function AgentManager() {
   const [rawJSON, setRawJSON] = useState<Record<string, any>>(RAW_AGENT_TYPE_INFO);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -49,24 +59,26 @@ export default function AgentManager() {
   const [globalHabitats, setGlobalHabitats] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'identity' | 'accessories' | 'knowledge' | 'files'>('identity');
   const [globalAccessories, setGlobalAccessories] = useState<any>({ items: {} });
+  const [accessorySearch, setAccessorySearch] = useState("");
+  const [showSuggested, setShowSuggested] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/agents')
+    fetch('/api/agents')
       .then(res => res.json())
       .then(data => setRawJSON(data))
       .catch(err => console.warn("Local API server not running, using static JSON import.", err));
 
-    fetch('http://localhost:3001/api/library')
+    fetch('/api/library')
       .then(res => res.json())
       .then(data => setGlobalLibrary(Array.isArray(data) ? data : []))
       .catch(err => console.warn("Could not load global library.", err));
 
-    fetch('http://localhost:3001/accessories/accessories.json')
+    fetch('/api/accessories', { cache: 'no-store' })
       .then(res => res.json())
       .then(data => setGlobalAccessories(data))
       .catch(err => console.warn("Could not load accessories library.", err));
 
-    fetch('http://localhost:3001/api/habitats')
+    fetch('/api/habitats')
       .then(res => res.json())
       .then(data => setGlobalHabitats(Array.isArray(data) ? data : []))
       .catch(err => console.warn("Could not load habitats.", err));
@@ -129,6 +141,8 @@ export default function AgentManager() {
        });
     }
     setActiveTab('identity');
+    setAccessorySearch('');
+    setShowSuggested(false);
     setIsModalOpen(true);
   };
 
@@ -169,7 +183,7 @@ export default function AgentManager() {
     };
     
     try {
-      await fetch('http://localhost:3001/api/agents', {
+      await fetch('/api/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newJSON)
@@ -224,7 +238,7 @@ export default function AgentManager() {
                      {/* 3D Preview Thumbnail */}
                      <div className="w-16 h-16 rounded-xl overflow-hidden relative border border-border shadow-inner" style={{ backgroundColor: agent.habitatColor || '#D6A3B9' }}>
                         {agent.image ? (
-                           <img src={agent.image.startsWith('http') ? agent.image : `http://localhost:3001${agent.image}`} alt={agent.name} className="w-full h-full object-cover" />
+                           <img src={agent.image.startsWith('http') ? agent.image : `${IMG_BASE}${agent.image}`} alt={agent.name} className="w-full h-full object-cover" />
                         ) : (
                            <div className="w-full h-full" style={{ backgroundColor: agent.robeColor }}></div>
                         )}
@@ -239,7 +253,7 @@ export default function AgentManager() {
                         {agent.accessories && agent.accessories.length > 0 ? (
                            agent.accessories.map((acc: string, i: number) => (
                               <div key={i} className="w-8 h-8 rounded border border-border bg-white shadow-sm flex items-center justify-center p-0.5">
-                                 <img src={`http://localhost:3001${acc}`} className="w-full h-full object-contain" />
+                                 <img src={acc} className="w-full h-full object-contain" />
                               </div>
                            ))
                         ) : (
@@ -287,25 +301,21 @@ export default function AgentManager() {
                  
                  <div className="flex-1" style={{ backgroundColor: editingAgent?.color || '#F5E6D8' }}>
                    <ModelErrorBoundary>
-                     <Canvas camera={{ position: [2.5, 2, 2.5], fov: 40 }} shadows orthographic>
+                     <Canvas camera={{ position: [2.5, 2, 2.5], fov: 40 }} shadows gl={{ shadowMapType: 1 }}>
+                        <OrbitControls makeDefault />
                         <Suspense fallback={null}>
                           <ambientLight intensity={1.5} />
                           <directionalLight position={[5, 8, 5]} intensity={2.5} castShadow />
                           
-                          {/* Terrarium */}
-                          <AdminTerrarium habitatColor={editingAgent?.habitatColor || '#D2D6C8'} size={2.5} />
+                          {/* Habitat Preview */}
+                          <HabitatPreview habitatId={editingAgent?.habitatId} habitats={globalHabitats} />
                           
-                          {/* Agent */}
-                          <AdminGLBAgent robeColor={editingAgent?.robeColor || '#888888'} />
-                          
-                          {/* Accessories */}
-                          {editingAgent?.accessories?.map((path: string, i: number) => (
-                            <SafeBillboard
-                              key={path}
-                              url={path.startsWith('http') ? path : `http://localhost:3001${path}`}
-                              position={[(i - ((editingAgent?.accessories?.length || 1) - 1) / 2) * 1.2, 1.5, 0]}
-                            />
-                          ))}
+                          {/* Agent with fully attached 3D accessories */}
+                          <AdminGLBAgent 
+                            robeColor={editingAgent?.robeColor || '#888888'} 
+                            accessories={editingAgent?.accessories || []}
+                            accessoryData={globalAccessories}
+                          />
                         </Suspense>
                      </Canvas>
                    </ModelErrorBoundary>
@@ -409,7 +419,7 @@ export default function AgentManager() {
                             }}
                             className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm font-bold text-textMain focus:outline-none"
                          >
-                            <option value="">Default Pedestal</option>
+                            <option value="">Select Habitat...</option>
                             {globalHabitats.map(h => (
                                <option key={h.id} value={h.id}>{h.name}</option>
                             ))}
@@ -466,14 +476,58 @@ export default function AgentManager() {
                        
                        {/* Curated/Global List */}
                        <div className="pt-4 border-t border-border">
-                         <h4 className="text-textMain font-bold text-sm mb-3">Global Accessory Collection</h4>
-                         <div className="grid grid-cols-4 gap-2">
-                            {Object.keys(globalAccessories.items || {}).map(path => {
+                         <div className="flex items-center justify-between mb-3">
+                           <h4 className="text-textMain font-bold text-sm">Global Accessory Collection</h4>
+                           <div className="flex items-center gap-2">
+                             <button
+                               onClick={() => setShowSuggested(!showSuggested)}
+                               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${showSuggested ? 'bg-primary text-white' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
+                             >
+                               <Sparkles size={12} className="inline mr-1" />
+                               Suggested
+                             </button>
+                             <div className="relative">
+                               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-textMuted" />
+                               <input
+                                 type="text"
+                                 placeholder="Search accessories..."
+                                 value={accessorySearch}
+                                 onChange={(e) => setAccessorySearch(e.target.value)}
+                                 className="pl-8 pr-3 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary w-48"
+                               />
+                             </div>
+                           </div>
+                         </div>
+                         <div className="grid grid-cols-4 gap-2 max-h-[300px] overflow-y-auto pr-2">
+                            {Object.entries(globalAccessories.items || {})
+                              .filter(([path, item]: [string, any]) => {
+                                 if (item.isVisible === false) return false;
+                                 
+                                 let matchesSearch = true;
+                                 if (accessorySearch) {
+                                    const searchLower = accessorySearch.toLowerCase();
+                                    matchesSearch = 
+                                      path.toLowerCase().includes(searchLower) || 
+                                      (item.name && item.name.toLowerCase().includes(searchLower)) ||
+                                      (item.labels && item.labels.some((l: string) => l.toLowerCase().includes(searchLower)));
+                                 }
+
+                                 let matchesSuggested = true;
+                                 if (showSuggested && editingAgent?.role) {
+                                    const roleLower = editingAgent.role.toLowerCase();
+                                    const hasMatchingLabel = item.labels && item.labels.some((l: string) => roleLower.includes(l.toLowerCase()));
+                                    const isAttached = editingAgent?.accessories?.includes(path);
+                                    matchesSuggested = hasMatchingLabel || isAttached;
+                                 }
+
+                                 return matchesSearch && matchesSuggested;
+                              })
+                              .map(([path, item]) => {
                                const isAttached = editingAgent?.accessories?.includes(path);
                                return (
-                                 <button 
+                                  <button 
                                    key={path}
-                                   title={path}
+                                   title={(item as any).name || path}
                                    onClick={() => {
                                       const current = editingAgent?.accessories || [];
                                       if (isAttached) {
@@ -482,10 +536,17 @@ export default function AgentManager() {
                                          setEditingAgent({ ...editingAgent, accessories: [...current, path] });
                                       }
                                    }}
-                                   className={`aspect-square rounded-lg border-2 overflow-hidden transition-all duration-200 ${isAttached ? 'border-primary ring-2 ring-primary/20 shadow-md scale-105 relative z-10 bg-primary/5' : 'border-border bg-white hover:border-black/20'}`}
+                                   className={`aspect-square rounded-lg border-2 overflow-hidden transition-all duration-200 relative group ${isAttached ? 'border-primary ring-2 ring-primary/20 shadow-md bg-primary/5 z-10' : 'border-border bg-white hover:border-black/20'}`}
                                  >
-                                    <img src={`http://localhost:3001${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
-                                    {isAttached && <span className="absolute bottom-1 right-1 w-2 h-2 rounded-full bg-primary" />}
+                                    <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
+                                    {isAttached && <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-white" />}
+                                    
+                                    {/* Type Badge */}
+                                    {(item as any).type && (
+                                      <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/50 text-white text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {(item as any).type}
+                                      </div>
+                                    )}
                                  </button>
                                );
                             })}
@@ -550,7 +611,7 @@ export default function AgentManager() {
                            const finalLibrary = [...updatedLibrary, ...toAdd];
                            
                            try {
-                             await fetch('http://localhost:3001/api/library', {
+                             await fetch('/api/library', {
                                method: 'POST',
                                headers: { 'Content-Type': 'application/json' },
                                body: JSON.stringify(finalLibrary)
@@ -589,7 +650,7 @@ export default function AgentManager() {
                                      });
                                      setGlobalLibrary(updatedLibrary);
                                      try {
-                                       await fetch('http://localhost:3001/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatedLibrary) });
+                                       await fetch('/api/library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatedLibrary) });
                                      } catch (e) { console.error(e); }
                                   }} className="text-textMuted hover:text-[#D96C3B] p-2" title="Unassign from agent">
                                     <X size={16} />

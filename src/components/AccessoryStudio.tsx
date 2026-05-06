@@ -12,7 +12,7 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
     if (!prompt.trim() || isGenerating) return;
     setIsGenerating(true);
     try {
-      const res = await fetch("http://localhost:3001/api/generate-accessories-2d", {
+      const res = await fetch("/api/generate-accessories-2d", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt })
       });
@@ -28,10 +28,10 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
     }
   };
 
-  const bakeTo3D = async (url: string) => {
+  const bakeTo3D = async (url: string, metadata?: { name: string, description: string }) => {
     setBakingStates(prev => ({ ...prev, [url]: "starting" }));
     try {
-      const res = await fetch("http://localhost:3001/api/meshy-task", {
+      const res = await fetch("/api/meshy-task", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageUrl: url })
       });
@@ -43,12 +43,17 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
       
       // Poll
       const poll = setInterval(async () => {
-        const checkRes = await fetch(`http://localhost:3001/api/meshy-check/${taskId}`);
+        const checkRes = await fetch(`/api/meshy-check/${taskId}`);
         const checkData = await checkRes.json();
         if (checkData.status === "SUCCEEDED") {
           clearInterval(poll);
           setBakingStates(prev => ({ ...prev, [url]: "done" }));
-          onAddAccessory(checkData.glbPath);
+          // We pass the png path but the manager expects the png path as the key, 
+          // and it will derive the glb from it.
+          // Wait, checkData.glbPath might be different. 
+          // The manager usually expects the PNG path as the key.
+          const pngPath = checkData.glbPath.replace('.glb', '.png');
+          onAddAccessory(pngPath, metadata);
         } else if (checkData.status === "FAILED") {
           clearInterval(poll);
           setBakingStates(prev => ({ ...prev, [url]: "failed" }));
@@ -69,7 +74,7 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
     }
     
     try {
-      const res = await fetch("http://localhost:3001/api/upload-bulk", {
+      const res = await fetch("/api/upload-bulk", {
         method: "POST",
         body: formData
       });
@@ -123,7 +128,7 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4">
                 <p className="text-white text-xs text-center mb-3 line-clamp-2">{img.prompt}</p>
                 <button 
-                  onClick={() => bakeTo3D(img.url)}
+                  onClick={() => bakeTo3D(img.originalUrl || img.url, { name: img.prompt, description: `Generated via Nano Banana Studio with prompt: ${img.prompt}` })}
                   disabled={!!bakingStates[img.url]}
                   className="bg-white text-black font-bold text-xs px-3 py-1.5 rounded-md w-full flex items-center justify-center gap-2"
                 >

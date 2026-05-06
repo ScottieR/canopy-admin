@@ -21,7 +21,7 @@ export default function LibraryManager() {
   });
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/library')
+    fetch('/api/library')
       .then(r => r.json())
       .then(data => setLibrary(Array.isArray(data) ? data : []))
       .catch(err => console.error("Could not fetch library", err));
@@ -29,7 +29,7 @@ export default function LibraryManager() {
 
   const handleSave = async (updatedLibrary: BookSchema[]) => {
     try {
-      await fetch('http://localhost:3001/api/library', {
+      await fetch('/api/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedLibrary)

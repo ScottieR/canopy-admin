@@ -15,7 +15,7 @@ export default function HabitatManager() {
 
   const fetchHabitats = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/habitats');
+      const res = await fetch('/api/habitats');
       const data = await res.json();
       setHabitats(data);
     } catch (e) {
@@ -27,7 +27,7 @@ export default function HabitatManager() {
 
   const saveHabitats = async (newHabitats: any[]) => {
     try {
-      await fetch('http://localhost:3001/api/habitats', {
+      await fetch('/api/habitats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newHabitats)

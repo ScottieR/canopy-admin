@@ -23,7 +23,7 @@ export function HabitatPlacementScene({
       
       {/* Habitat */}
       {habitatType === 'glb' && habitatPath ? (
-        <HabitatModel path={`http://localhost:3001${habitatPath}`} />
+        <HabitatModel path={`${habitatPath}`} />
       ) : (
         <DefaultPedestal />
       )}
@@ -59,7 +59,7 @@ function DraggableLobster({ placement, onPlacementChange }: {
   placement: { x: number, y: number, z: number, rotationY: number }, 
   onPlacementChange: (p: { x: number, y: number, z: number, rotationY: number }) => void 
 }) {
-  const { scene, animations } = useGLTF("http://localhost:3001/models/lobsters/BaseLobsterRigged.glb");
+  const { scene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb");
   const clonedScene = useMemo(() => SkeletonUtils.clone(scene), [scene]);
   const groupRef = useRef<THREE.Group>(null);
   

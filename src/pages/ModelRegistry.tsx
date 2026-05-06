@@ -12,7 +12,7 @@ export default function ModelRegistry() {
   }, []);
 
   const fetchModels = () => {
-    fetch('http://localhost:3001/api/models')
+    fetch('/api/models')
       .then(res => res.json())
       .then(data => {
         if (data.models) setModelsData(data);
@@ -23,7 +23,7 @@ export default function ModelRegistry() {
   const handleSync = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch('http://localhost:3001/api/sync-models', { method: 'POST' });
+      const res = await fetch('/api/sync-models', { method: 'POST' });
       await res.json();
       fetchModels();
     } catch (e) {
@@ -38,7 +38,7 @@ export default function ModelRegistry() {
        models: modelsData.models.filter((m: any) => m.id !== modelId)
     };
     setModelsData(updated);
-    fetch('http://localhost:3001/api/models', {
+    fetch('/api/models', {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updated)
