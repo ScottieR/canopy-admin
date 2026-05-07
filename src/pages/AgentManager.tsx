@@ -1,9 +1,11 @@
-import { useState, useEffect, Component, Suspense } from 'react';
+import { useState, useEffect, useMemo, Component, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, X, BookOpen, ToggleRight, ToggleLeft, Edit3, Check, Sparkles, Search } from 'lucide-react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
+import * as THREE from 'three';
+import { SkeletonUtils } from 'three-stdlib';
 import { AdminGLBAgent } from '../components/3d/AdminGLBAgent';
 import { AdminTerrarium } from '../components/3d/AdminTerrarium';
 import { SafeBillboard } from '../components/3d/SafeBillboard';
@@ -46,8 +48,44 @@ class ModelErrorBoundary extends Component<{children: ReactNode}, {hasError: boo
 function HabitatPreview({ habitatId, habitats }: { habitatId?: string | null, habitats: any[] }) {
   const habitat = habitats.find(h => h.id === habitatId);
   if (!habitat || !habitat.path) return null;
-  const { scene } = useGLTF(`http://localhost:3001${habitat.path}`);
-  return <primitive object={scene} />;
+  const { scene } = useGLTF(habitat.path.startsWith('http') ? habitat.path : `http://localhost:3001${habitat.path.startsWith('/') ? '' : '/'}${habitat.path}`);
+  
+  const clonedScene = useMemo(() => {
+    const clone = SkeletonUtils.clone(scene);
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = box.getSize(new THREE.Vector3());
+
+    // 1. Same logic as TerrariumBase, but we multiply by 2 because AdminGLBAgent is scale 0.5 (2x the main app's 0.25)
+    const maxDim = Math.max(size.x, size.z);
+    const targetScale = maxDim > 0 ? (2.2 / maxDim) * 2 : 2;
+    clone.scale.set(targetScale, targetScale, targetScale);
+    clone.updateMatrixWorld(true);
+
+    // 2. Procedural floor snapping (same as WorldScene)
+    const raycaster = new THREE.Raycaster();
+    raycaster.set(new THREE.Vector3(0, 50, 0), new THREE.Vector3(0, -1, 0));
+    const intersects = raycaster.intersectObject(clone, true);
+    if (intersects.length > 0) {
+      clone.position.y = -intersects[0].point.y;
+    } else {
+      clone.position.y = -(box.max.y * targetScale);
+    }
+    
+    // Convert materials to unlit so they match perfectly
+    clone.traverse((child: any) => {
+      if (child.isMesh && child.material) {
+        if (child.material.map) {
+          const safeMap = child.material.map.clone();
+          safeMap.needsUpdate = true;
+          child.material = new THREE.MeshBasicMaterial({ map: safeMap });
+        }
+      }
+    });
+
+    return clone;
+  }, [scene]);
+
+  return <primitive object={clonedScene} />;
 }
 
 export default function AgentManager() {

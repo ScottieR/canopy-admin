@@ -1,13 +1,58 @@
-import { useState, useEffect } from 'react';
-import { Layers, Plus, Trash2, Save, Move3d, X, LayoutTemplate } from 'lucide-react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
+import { Layers, Plus, Trash2, Save, Move3d, X, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
+import { useGLTF, OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
+import { SkeletonUtils } from 'three-stdlib';
 import { HabitatPlacementScene } from '../components/3d/HabitatPlacementScene';
+
+function HabitatPreview({ path }: { path?: string }) {
+  if (!path) return null;
+  const { scene } = useGLTF(path.startsWith('http') ? path : `http://localhost:3001${path.startsWith('/') ? '' : '/'}${path}`);
+  
+  const clonedScene = useMemo(() => {
+    const clone = SkeletonUtils.clone(scene);
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = box.getSize(new THREE.Vector3());
+
+    const maxDim = Math.max(size.x, size.z);
+    const targetScale = maxDim > 0 ? (2.2 / maxDim) * 2 : 2;
+    clone.scale.set(targetScale, targetScale, targetScale);
+    clone.updateMatrixWorld(true);
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.set(new THREE.Vector3(0, 50, 0), new THREE.Vector3(0, -1, 0));
+    const intersects = raycaster.intersectObject(clone, true);
+    if (intersects.length > 0) {
+      clone.position.y = -intersects[0].point.y;
+    } else {
+      clone.position.y = -(box.max.y * targetScale);
+    }
+    
+    clone.traverse((child: any) => {
+      if (child.isMesh && child.material) {
+        if (child.material.map) {
+          const safeMap = child.material.map.clone();
+          safeMap.needsUpdate = true;
+          child.material = new THREE.MeshBasicMaterial({ map: safeMap });
+        } else {
+          child.material = new THREE.MeshBasicMaterial({ color: child.material.color });
+        }
+      }
+    });
+
+    return clone;
+  }, [scene]);
+
+  return <primitive object={clonedScene} />;
+}
 
 export default function HabitatManager() {
   const [habitats, setHabitats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingPlacement, setEditingPlacement] = useState<number | null>(null);
+  const [placementMode, setPlacementMode] = useState<'lobster' | 'paint' | 'erase'>('lobster');
 
   useEffect(() => {
     fetchHabitats();
@@ -89,129 +134,193 @@ export default function HabitatManager() {
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-6">
         {habitats.map((habitat, index) => (
-          <div key={habitat.id} className="bg-white p-6 rounded-2xl shadow-sm border border-outline-variant/20 flex gap-6">
-            <div className="flex-1 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-textMuted mb-1.5 uppercase tracking-wider">Habitat Name</label>
-                  <input
-                    type="text"
-                    value={habitat.name}
-                    onChange={(e) => updateHabitat(index, 'name', e.target.value)}
-                    className="w-full bg-surface border border-outline-variant/50 rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-textMuted mb-1.5 uppercase tracking-wider">Type</label>
-                  <select
-                    value={habitat.type}
-                    onChange={(e) => updateHabitat(index, 'type', e.target.value)}
-                    className="w-full bg-surface border border-outline-variant/50 rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none"
-                  >
-                    <option value="glb">3D Model (.glb)</option>
-                    <option value="pedestal">Default Pedestal</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-textMuted mb-1.5 uppercase tracking-wider">File Path (URL or local path)</label>
-                <input
-                  type="text"
-                  value={habitat.path}
-                  onChange={(e) => updateHabitat(index, 'path', e.target.value)}
-                  placeholder="/models/habitats/example.glb"
-                  className="w-full bg-surface border border-outline-variant/50 rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary/20 outline-none"
-                />
+          <motion.div 
+            key={habitat.id} 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl border border-border shadow-sm overflow-hidden flex flex-col group cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => setEditingPlacement(index)}
+          >
+            <div className="h-48 w-full bg-surface relative">
+               <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-textMuted font-bold text-xs">Loading Model...</div>}>
+                 <Canvas camera={{ position: [0, 6, 12], fov: 45 }}>
+                    <ambientLight intensity={0.5} />
+                    <directionalLight position={[5, 10, 5]} intensity={1} />
+                    <OrbitControls autoRotate autoRotateSpeed={2} enableZoom={false} enablePan={false} enableRotate={false} />
+                    {habitat.path ? <HabitatPreview path={habitat.path} /> : (
+                      <mesh>
+                         <boxGeometry args={[1,1,1]} />
+                         <meshBasicMaterial color="#e0e0e0" />
+                      </mesh>
+                    )}
+                 </Canvas>
+               </Suspense>
+            </div>
+            
+            <div className="p-5 flex-1 flex flex-col border-t border-border/50">
+              <h3 className="font-extrabold text-textMain text-lg truncate">{habitat.name}</h3>
+              <p className="text-xs font-medium text-textMuted mt-1 truncate" title={habitat.path}>{habitat.path || 'No model path defined'}</p>
+              
+              <div className="mt-auto pt-4 flex items-center justify-between">
+                 <div className="text-[10px] font-bold text-textMuted uppercase bg-backgroundAlt px-2 py-1 rounded-md">
+                   {habitat.type === 'glb' ? '3D Model' : 'Pedestal'}
+                 </div>
+                 <div className="text-[10px] font-bold text-textMuted uppercase">
+                   Pts: {habitat.decorPoints?.length || 0}
+                 </div>
               </div>
             </div>
-
-            <div className="w-px bg-outline-variant/20 mx-2"></div>
-
-            <div className="w-[300px]">
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-textMuted uppercase tracking-wider">
-                  <Move3d size={14} /> Default Lobster Placement
-                </div>
-                <button 
-                  onClick={() => setEditingPlacement(index)}
-                  className="bg-primary/10 text-primary hover:bg-primary/20 transition-colors px-2 py-1 rounded flex items-center gap-1 text-[10px] font-bold uppercase"
-                >
-                  <LayoutTemplate size={12} /> Visual Editor
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {['x', 'y', 'z', 'rotationY'].map((axis) => (
-                  <div key={axis} className="flex items-center bg-surface border border-outline-variant/50 rounded-lg overflow-hidden">
-                    <span className="bg-outline-variant/10 text-textMuted font-bold text-xs px-3 py-2 border-r border-outline-variant/50 uppercase">
-                      {axis === 'rotationY' ? 'rot' : axis}
-                    </span>
-                    <input
-                      type="number"
-                      step={axis === 'rotationY' ? "0.1" : "0.5"}
-                      value={habitat.placement?.[axis] ?? 0}
-                      onChange={(e) => updateHabitat(index, `placement.${axis}`, e.target.value)}
-                      className="w-full bg-transparent px-3 py-2 text-sm font-medium outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={() => removeHabitat(index)}
-              className="w-10 h-10 flex items-center justify-center rounded-xl text-error hover:bg-error/10 transition-colors shrink-0 self-center"
-            >
-              <Trash2 size={18} />
-            </button>
-          </div>
+          </motion.div>
         ))}
       </div>
 
       <AnimatePresence>
         {editingPlacement !== null && habitats[editingPlacement] && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-8">
-             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-5xl h-[70vh] relative flex flex-col">
+             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-6xl h-[85vh] relative flex flex-col">
                 <button onClick={() => { setEditingPlacement(null); saveHabitats(habitats); }} className="absolute top-4 right-4 text-textMuted hover:text-textMain z-10 bg-white/80 backdrop-blur rounded-full p-1"><X size={24}/></button>
                 
                 <div className="bg-surface border-b border-outline-variant/30 p-6 flex justify-between items-center shrink-0 z-10 shadow-sm relative">
                    <div>
-                     <h3 className="font-bold text-xl text-textMain flex items-center gap-2"><Move3d size={20} className="text-primary"/> Visual Placement</h3>
-                     <p className="text-xs text-textMuted mt-1">Drag the lobster to set the default spawn point for <span className="font-bold text-textMain">{habitats[editingPlacement].name}</span>.</p>
+                     <h3 className="font-bold text-xl text-textMain flex items-center gap-2"><Move3d size={20} className="text-primary"/> Editing {habitats[editingPlacement].name}</h3>
+                     <p className="text-xs text-textMuted mt-1">Configure model path, default spawn, and paint valid decor surface areas.</p>
                    </div>
                    
                    <div className="flex items-center gap-4">
-                     <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-border shadow-sm">
-                       <span className="text-xs font-bold text-textMuted uppercase">Rot Y</span>
-                       <input 
-                         type="range" min="-3.14" max="3.14" step="0.1"
-                         value={habitats[editingPlacement].placement.rotationY || 0}
-                         onChange={(e) => updateHabitat(editingPlacement, 'placement.rotationY', e.target.value)}
-                         className="w-24 accent-primary"
-                       />
-                     </div>
+                     <button onClick={() => removeHabitat(editingPlacement)} className="text-error hover:bg-error/10 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors">
+                        <Trash2 size={16} /> Delete
+                     </button>
                      <button onClick={() => { setEditingPlacement(null); saveHabitats(habitats); }} className="bg-primary hover:bg-primaryHover text-white font-bold py-2 px-6 rounded-xl transition-colors shadow-sm text-sm">
-                        Save Placement
+                        Save & Close
                      </button>
                    </div>
                 </div>
 
-                <div className="flex-1 bg-black/5 relative">
-                   <Canvas shadows camera={{ position: [0, 4, 8], fov: 45 }}>
-                      <HabitatPlacementScene 
-                        habitatPath={habitats[editingPlacement].path}
-                        habitatType={habitats[editingPlacement].type}
-                        placement={habitats[editingPlacement].placement}
-                        onPlacementChange={(newPlacement) => {
-                           const newHabitats = [...habitats];
-                           newHabitats[editingPlacement].placement = newPlacement;
-                           setHabitats(newHabitats);
-                        }}
-                      />
-                   </Canvas>
-                   <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-mono text-textMain shadow-sm pointer-events-none">
-                      X: {habitats[editingPlacement].placement.x.toFixed(2)} | Y: {habitats[editingPlacement].placement.y.toFixed(2)} | Z: {habitats[editingPlacement].placement.z.toFixed(2)}
+                <div className="flex-1 flex flex-row relative overflow-hidden bg-white">
+                   {/* Left Panel: Properties */}
+                   <div className="w-80 border-r border-border p-6 flex flex-col gap-6 overflow-y-auto bg-background">
+                      <div>
+                        <label className="block text-[10px] font-bold text-textMuted mb-2 uppercase tracking-wider">Habitat Name</label>
+                        <input
+                          type="text"
+                          value={habitats[editingPlacement].name}
+                          onChange={(e) => updateHabitat(editingPlacement, 'name', e.target.value)}
+                          className="w-full bg-white border border-border rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm text-textMain"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-[10px] font-bold text-textMuted mb-2 uppercase tracking-wider">Model Type</label>
+                        <select
+                          value={habitats[editingPlacement].type}
+                          onChange={(e) => updateHabitat(editingPlacement, 'type', e.target.value)}
+                          className="w-full bg-white border border-border rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm text-textMain"
+                        >
+                          <option value="glb">3D Model (.glb)</option>
+                          <option value="pedestal">Default Pedestal</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-textMuted mb-2 uppercase tracking-wider">File Path (URL or local path)</label>
+                        <input
+                          type="text"
+                          value={habitats[editingPlacement].path}
+                          onChange={(e) => updateHabitat(editingPlacement, 'path', e.target.value)}
+                          placeholder="/models/habitats/example.glb"
+                          className="w-full bg-white border border-border rounded-xl px-4 py-2 text-xs font-mono focus:ring-2 focus:ring-primary/20 outline-none shadow-sm text-textMain"
+                        />
+                      </div>
+
+                      <div className="pt-6 border-t border-border">
+                        <label className="block text-[10px] font-bold text-textMuted mb-3 uppercase tracking-wider flex justify-between items-center">
+                          Default Lobster Placement
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {['x', 'y', 'z', 'rotationY'].map((axis) => (
+                            <div key={axis} className="flex items-center bg-white border border-border rounded-lg overflow-hidden shadow-sm">
+                              <span className="bg-backgroundAlt text-textMuted font-bold text-[10px] px-2 py-2 border-r border-border w-10 text-center uppercase">
+                                {axis === 'rotationY' ? 'rot' : axis}
+                              </span>
+                              <input
+                                type="number"
+                                step={axis === 'rotationY' ? "0.1" : "0.5"}
+                                value={habitats[editingPlacement].placement?.[axis] ?? 0}
+                                onChange={(e) => updateHabitat(editingPlacement, `placement.${axis}`, e.target.value)}
+                                className="w-full bg-transparent px-2 py-2 text-xs font-mono outline-none text-textMain"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                   </div>
+
+                   {/* Right Panel: Visual Editor */}
+                   <div className="flex-1 bg-black/5 relative flex flex-col">
+                      <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start pointer-events-none">
+                         <div className="flex items-center bg-white/90 backdrop-blur shadow-sm p-1 rounded-xl pointer-events-auto border border-border/50">
+                            <button 
+                              onClick={() => setPlacementMode('lobster')}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${placementMode === 'lobster' ? 'bg-primary shadow-sm text-white' : 'text-textMuted hover:text-textMain'}`}
+                            >
+                              Spawn Point
+                            </button>
+                            <button 
+                              onClick={() => setPlacementMode('paint')}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${placementMode === 'paint' ? 'bg-primary shadow-sm text-white' : 'text-textMuted hover:text-textMain'}`}
+                            >
+                              Paint Decor
+                            </button>
+                            <button 
+                              onClick={() => setPlacementMode('erase')}
+                              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${placementMode === 'erase' ? 'bg-error shadow-sm text-white' : 'text-textMuted hover:text-textMain'}`}
+                            >
+                              Erase
+                            </button>
+                         </div>
+                         
+                         <div className="flex items-center gap-2 bg-white/90 backdrop-blur px-3 py-2 rounded-xl border border-border/50 shadow-sm pointer-events-auto">
+                           <span className="text-xs font-bold text-textMuted uppercase tracking-wider">Lobster Y-Rotation</span>
+                           <input 
+                             type="range" min="-3.14" max="3.14" step="0.1"
+                             value={habitats[editingPlacement].placement?.rotationY || 0}
+                             onChange={(e) => updateHabitat(editingPlacement, 'placement.rotationY', e.target.value)}
+                             className="w-32 accent-primary"
+                             disabled={placementMode !== 'lobster'}
+                           />
+                         </div>
+                      </div>
+
+                      <Canvas shadows camera={{ position: [0, 4, 8], fov: 45 }}>
+                         <Suspense fallback={null}>
+                           <HabitatPlacementScene 
+                             habitatPath={habitats[editingPlacement].path}
+                             habitatType={habitats[editingPlacement].type}
+                             placement={habitats[editingPlacement].placement}
+                             decorPoints={habitats[editingPlacement].decorPoints || []}
+                             placementMode={placementMode}
+                             onPlacementChange={(newPlacement) => {
+                                const newHabitats = [...habitats];
+                                newHabitats[editingPlacement].placement = newPlacement;
+                                setHabitats(newHabitats);
+                             }}
+                             onDecorPointsChange={(newPoints) => {
+                                const newHabitats = [...habitats];
+                                newHabitats[editingPlacement].decorPoints = newPoints;
+                                setHabitats(newHabitats);
+                             }}
+                           />
+                         </Suspense>
+                      </Canvas>
+
+                      <div className="absolute bottom-4 left-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-mono text-textMain shadow-sm pointer-events-none border border-border/50">
+                         Lobster Spawn: [{habitats[editingPlacement].placement?.x?.toFixed(2)}, {habitats[editingPlacement].placement?.y?.toFixed(2)}, {habitats[editingPlacement].placement?.z?.toFixed(2)}]
+                      </div>
+                      <div className="absolute bottom-4 right-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold text-textMain shadow-sm pointer-events-none border border-border/50">
+                         Decor Points Painted: {(habitats[editingPlacement].decorPoints || []).length}
+                      </div>
                    </div>
                 </div>
              </motion.div>

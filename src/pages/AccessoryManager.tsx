@@ -71,7 +71,13 @@ export default function AccessoryManager() {
       if (!accData.defaults) accData.defaults = {};
       if (!accData.boneDefaults) accData.boneDefaults = {};
       setData(accData as AccessoriesData);
-      setAgents(Object.values(agentsData));
+      const agentsArray = Object.entries(agentsData).map(([name, data]: [string, any]) => ({
+        id: name,
+        name: name,
+        accessories: data.accessories || [],
+        ...data
+      }));
+      setAgents(agentsArray);
     }).catch(console.error);
   }, []);
 
@@ -129,7 +135,43 @@ export default function AccessoryManager() {
     return matchesSearch && matchesPersona;
   });
 
-  const agentsUsingSelected = editingPath ? agents.filter(a => a.visual_identity?.accessories?.includes(editingPath)) : [];
+  const agentsUsingSelected = editingPath ? agents.filter(a => a.accessories?.includes(editingPath)) : [];
+  const agentsNotUsingSelected = editingPath ? agents.filter(a => !a.accessories?.includes(editingPath)) : [];
+
+  const toggleAgentAccessory = async (agentId: string, add: boolean) => {
+    if (!editingPath) return;
+    const newAgents = [...agents];
+    const agentIndex = newAgents.findIndex(a => a.id === agentId);
+    if (agentIndex === -1) return;
+    
+    const agent = { ...newAgents[agentIndex] };
+    if (!agent.accessories) agent.accessories = [];
+    
+    if (add && !agent.accessories.includes(editingPath)) {
+      agent.accessories = [...agent.accessories, editingPath];
+    } else if (!add && agent.accessories.includes(editingPath)) {
+      agent.accessories = agent.accessories.filter((a: string) => a !== editingPath);
+    }
+    
+    newAgents[agentIndex] = agent;
+    setAgents(newAgents);
+    
+    try {
+      const agentsObj = newAgents.reduce((acc, a) => {
+        const { id, name, ...rest } = a;
+        acc[id] = rest;
+        return acc;
+      }, {} as any);
+      
+      await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(agentsObj)
+      });
+    } catch (e) {
+      console.error("Failed to save agent accessories", e);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -349,14 +391,29 @@ export default function AccessoryManager() {
                         <div className="flex flex-wrap gap-2">
                            {agentsUsingSelected.length > 0 ? (
                              agentsUsingSelected.map(agent => (
-                               <div key={agent.id} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-border shadow-sm">
-                                 <span className="text-lg">{agent.emoji}</span>
-                                 <span className="text-xs font-bold text-textMain">{agent.name}</span>
+                               <div key={agent.id} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-primary shadow-sm relative group cursor-pointer" onClick={() => toggleAgentAccessory(agent.id, false)}>
+                                 <span className="text-xs font-bold text-primary">{agent.name}</span>
+                                 <span className="opacity-0 group-hover:opacity-100 absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 shadow transition-opacity"><X size={10} /></span>
                                </div>
                              ))
                            ) : (
                              <p className="text-xs text-textMuted italic">No agents currently wearing this accessory.</p>
                            )}
+                        </div>
+                        
+                        <div className="mt-4 pt-4 border-t border-border/50">
+                          <label className="text-[10px] font-bold text-textMuted uppercase mb-3 block tracking-widest">Add To Agent</label>
+                          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2">
+                            {agentsNotUsingSelected.map(agent => (
+                              <button 
+                                key={agent.id} 
+                                onClick={() => toggleAgentAccessory(agent.id, true)}
+                                className="text-[10px] font-bold bg-black/5 hover:bg-black/10 text-textMuted hover:text-textMain px-2.5 py-1 rounded-md transition"
+                              >
+                                + {agent.name}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
 
