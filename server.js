@@ -843,7 +843,7 @@ app.post('/api/generate-accessories-2d', async (req, res) => {
 
   const injectedPrompt = `You are a 3D prop extractor. 
 Extract individual accessories/items from the following user request.
-Output ONLY a JSON array of strings, where each string is a highly descriptive prompt for an isometric monument valley style 3D prop, isolated on a solid white background.
+Output ONLY a JSON array of strings, where each string is a highly descriptive prompt for a 3D prop.
 Keep them simple, blocky, pastel colored, isometric.
 User Request: ${prompt}`;
 
@@ -865,8 +865,8 @@ User Request: ${prompt}`;
     
     // Convert to pollinations images with a local proxy to avoid broken external links
     const images = items.map(item => {
-      const fullPrompt = `${item}, isolated on solid pure white background, low poly primitive shapes, smooth lighting, pastel colors, 3d game asset, monument valley style, cute`;
-      const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true`;
+      const fullPrompt = `${item}, single isolated object floating in the center, pure solid white background, no environment, no ground, low poly primitive shapes, smooth lighting, pastel colors, 3d game asset, monument valley style, cute`;
+      const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 100000)}`;
       return {
         prompt: item,
         url: `/api/proxy-image?url=${encodeURIComponent(pollinationsUrl)}`,
@@ -1016,13 +1016,21 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
       
       console.log(`[MESHY] Saved GLB to: ${savePath}`);
 
-      if (fs.existsSync(ACCESSORIES_FILE)) {
-         const accData = JSON.parse(fs.readFileSync(ACCESSORIES_FILE, 'utf8'));
-         const glbKey = `/accessories/${fileName}`;
-         accData.items[glbKey] = { isVisible: true, generatedFrom: data.image_url };
-         fs.writeFileSync(ACCESSORIES_FILE, JSON.stringify(accData, null, 2));
+      // If this was generated from a Pollinations URL (AI generator), download and save the 2D image too
+      if (originalPath && (originalPath.includes('/api/proxy-image?url=') || originalPath.includes('pollinations.ai'))) {
+         try {
+             const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
+             const imgRes = await fetch(trueUrl);
+             const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+             const pngFileName = fileName.replace('.glb', '.png');
+             const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
+             fs.writeFileSync(pngSavePath, imgBuffer);
+             console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
+         } catch (imgErr) {
+             console.error("[MESHY] Failed to download source PNG:", imgErr);
+         }
       }
-      
+
       taskIdToPath.delete(taskId);
       return res.json({ success: true, status: data.status, glbPath: `/accessories/${fileName}` });
     }

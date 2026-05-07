@@ -75,14 +75,15 @@ export default function AccessoryManager() {
     }).catch(console.error);
   }, []);
 
-  const handleSave = async () => {
-    if (!data) return;
+  const handleSave = async (overrideData?: AccessoriesData | any) => {
+    const dataToSave = overrideData || data;
+    if (!dataToSave) return;
     setSaving(true);
     try {
       await fetch('/api/accessories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(dataToSave)
       });
       setTimeout(() => setSaving(false), 500);
     } catch (e) {
@@ -241,7 +242,7 @@ export default function AccessoryManager() {
            <AccessoryStudio onAddAccessory={(path, metadata) => {
               setData(prev => {
                 if (!prev) return prev;
-                return {
+                const newData = {
                   ...prev,
                   items: { 
                     ...prev.items, 
@@ -254,6 +255,8 @@ export default function AccessoryManager() {
                     } 
                   }
                 };
+                handleSave(newData);
+                return newData;
               });
               alert("Added to catalog!");
            }} />
@@ -533,7 +536,7 @@ export default function AccessoryManager() {
                             boneName={data.items[editingPath]?.bone || "Head"}
                             offset={data.items[editingPath]?.offset || [0, 0, 0]}
                             rotation={data.items[editingPath]?.rotation || [0, 0, 0]}
-                            scale={data.items[editingPath]?.scale || 0.25}
+                            scale={data.items[editingPath]?.scale || 75}
                             animated={animated}
                             isEditingAccessory={isEditingAccessory}
                             transformMode={transformMode}
