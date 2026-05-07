@@ -1,52 +1,8 @@
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { Layers, Plus, Trash2, Save, Move3d, X, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
-import { useGLTF, OrbitControls } from '@react-three/drei';
-import * as THREE from 'three';
-import { SkeletonUtils } from 'three-stdlib';
 import { HabitatPlacementScene } from '../components/3d/HabitatPlacementScene';
-
-function HabitatPreview({ path }: { path?: string }) {
-  if (!path) return null;
-  const { scene } = useGLTF(path.startsWith('http') ? path : `http://localhost:3001${path.startsWith('/') ? '' : '/'}${path}`);
-  
-  const clonedScene = useMemo(() => {
-    const clone = SkeletonUtils.clone(scene);
-    const box = new THREE.Box3().setFromObject(clone);
-    const size = box.getSize(new THREE.Vector3());
-
-    const maxDim = Math.max(size.x, size.z);
-    const targetScale = maxDim > 0 ? (2.2 / maxDim) * 2 : 2;
-    clone.scale.set(targetScale, targetScale, targetScale);
-    clone.updateMatrixWorld(true);
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.set(new THREE.Vector3(0, 50, 0), new THREE.Vector3(0, -1, 0));
-    const intersects = raycaster.intersectObject(clone, true);
-    if (intersects.length > 0) {
-      clone.position.y = -intersects[0].point.y;
-    } else {
-      clone.position.y = -(box.max.y * targetScale);
-    }
-    
-    clone.traverse((child: any) => {
-      if (child.isMesh && child.material) {
-        if (child.material.map) {
-          const safeMap = child.material.map.clone();
-          safeMap.needsUpdate = true;
-          child.material = new THREE.MeshBasicMaterial({ map: safeMap });
-        } else {
-          child.material = new THREE.MeshBasicMaterial({ color: child.material.color });
-        }
-      }
-    });
-
-    return clone;
-  }, [scene]);
-
-  return <primitive object={clonedScene} />;
-}
 
 export default function HabitatManager() {
   const [habitats, setHabitats] = useState<any[]>([]);
@@ -54,21 +10,22 @@ export default function HabitatManager() {
   const [editingPlacement, setEditingPlacement] = useState<number | null>(null);
   const [placementMode, setPlacementMode] = useState<'lobster' | 'paint' | 'erase'>('lobster');
 
+  const fetchHabitats = () => {
+    fetch('/api/habitats')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setHabitats(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.warn("Could not load habitats:", err);
+        setLoading(false);
+      });
+  };
+
   useEffect(() => {
     fetchHabitats();
   }, []);
-
-  const fetchHabitats = async () => {
-    try {
-      const res = await fetch('/api/habitats');
-      const data = await res.json();
-      setHabitats(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const saveHabitats = async (newHabitats: any[]) => {
     try {
@@ -100,9 +57,18 @@ export default function HabitatManager() {
     
     if (field.startsWith('placement.')) {
       const key = field.split('.')[1];
-      newHabitats[index].placement[key] = parseFloat(value) || 0;
+      newHabitats[index] = {
+        ...newHabitats[index],
+        placement: {
+          ...(newHabitats[index].placement || {}),
+          [key]: parseFloat(value) || 0
+        }
+      };
     } else {
-      newHabitats[index][field] = value;
+      newHabitats[index] = {
+        ...newHabitats[index],
+        [field]: value
+      };
     }
     setHabitats(newHabitats);
   };
@@ -143,20 +109,24 @@ export default function HabitatManager() {
             className="bg-white rounded-3xl border border-border shadow-sm overflow-hidden flex flex-col group cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => setEditingPlacement(index)}
           >
-            <div className="h-48 w-full bg-surface relative">
-               <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-textMuted font-bold text-xs">Loading Model...</div>}>
-                 <Canvas camera={{ position: [0, 6, 12], fov: 45 }}>
-                    <ambientLight intensity={0.5} />
-                    <directionalLight position={[5, 10, 5]} intensity={1} />
-                    <OrbitControls autoRotate autoRotateSpeed={2} enableZoom={false} enablePan={false} enableRotate={false} />
-                    {habitat.path ? <HabitatPreview path={habitat.path} /> : (
-                      <mesh>
-                         <boxGeometry args={[1,1,1]} />
-                         <meshBasicMaterial color="#e0e0e0" />
-                      </mesh>
-                    )}
-                 </Canvas>
-               </Suspense>
+            <div className="h-48 w-full bg-surface relative flex items-center justify-center border-b border-border/50">
+               {habitat.path && habitat.type === 'glb' ? (
+                 <>
+                   <img 
+                     src={habitat.path.startsWith('http') ? habitat.path.replace('.glb', '.png') : `http://localhost:3001${habitat.path.startsWith('/') ? '' : '/'}${habitat.path.replace('.glb', '.png')}`}
+                     alt={habitat.name}
+                     className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                     onError={(e) => { (e.target as any).style.display = 'none'; }}
+                   />
+                   <div className="absolute inset-0 flex items-center justify-center text-outline-variant" style={{ zIndex: -1 }}>
+                      <ImageIcon size={32} />
+                   </div>
+                 </>
+               ) : (
+                 <div className="text-outline-variant">
+                    <ImageIcon size={32} />
+                 </div>
+               )}
             </div>
             
             <div className="p-5 flex-1 flex flex-col border-t border-border/50">
@@ -180,7 +150,7 @@ export default function HabitatManager() {
         {editingPlacement !== null && habitats[editingPlacement] && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-8">
              <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-6xl h-[85vh] relative flex flex-col">
-                <button onClick={() => { setEditingPlacement(null); saveHabitats(habitats); }} className="absolute top-4 right-4 text-textMuted hover:text-textMain z-10 bg-white/80 backdrop-blur rounded-full p-1"><X size={24}/></button>
+                <button onClick={() => { setEditingPlacement(null); fetchHabitats(); }} className="absolute top-4 right-4 text-textMuted hover:text-textMain z-10 bg-white/80 backdrop-blur rounded-full p-1"><X size={24}/></button>
                 
                 <div className="bg-surface border-b border-outline-variant/30 p-6 flex justify-between items-center shrink-0 z-10 shadow-sm relative">
                    <div>
@@ -303,12 +273,18 @@ export default function HabitatManager() {
                              placementMode={placementMode}
                              onPlacementChange={(newPlacement) => {
                                 const newHabitats = [...habitats];
-                                newHabitats[editingPlacement].placement = newPlacement;
+                                newHabitats[editingPlacement] = {
+                                  ...newHabitats[editingPlacement],
+                                  placement: newPlacement
+                                };
                                 setHabitats(newHabitats);
                              }}
                              onDecorPointsChange={(newPoints) => {
                                 const newHabitats = [...habitats];
-                                newHabitats[editingPlacement].decorPoints = newPoints;
+                                newHabitats[editingPlacement] = {
+                                  ...newHabitats[editingPlacement],
+                                  decorPoints: newPoints
+                                };
                                 setHabitats(newHabitats);
                              }}
                            />

@@ -32,7 +32,13 @@ export function AdminGLBAgent({
   transformRef,
   transformAccessoryPath,
   modelScale = 0.5,
-  modelPosition = [0, -0.23, 0]
+  modelPosition = [0, -0.23, 0],
+  modelRotationY = 0,
+  decorTransforms = {},
+  decorPoints = [],
+  selectedDecorPath = null,
+  onSelectDecor = undefined,
+  onDecorTransformChange = undefined
 }: {
   robeColor?: string,
   forceAnimation?: string,
@@ -42,7 +48,13 @@ export function AdminGLBAgent({
   transformRef?: React.Ref<THREE.Group>,
   transformAccessoryPath?: string,
   modelScale?: number,
-  modelPosition?: [number, number, number]
+  modelPosition?: [number, number, number],
+  modelRotationY?: number,
+  decorTransforms?: Record<string, any>,
+  decorPoints?: {x: number, y: number, z: number}[],
+  selectedDecorPath?: string | null,
+  onSelectDecor?: (path: string) => void,
+  onDecorTransformChange?: (path: string, transform: any) => void
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
@@ -128,7 +140,7 @@ export function AdminGLBAgent({
   }, [actions, names, forceAnimation]);
 
   return (
-    <group ref={groupRef} position={modelPosition} scale={modelScale} dispose={null}>
+    <group ref={groupRef} position={modelPosition} rotation={[0, modelRotationY, 0]} scale={modelScale} dispose={null}>
       <primitive object={clonedScene} />
       {accessories.map((acc, i) => {
         const itemData = accessoryData?.items?.[acc];
@@ -153,28 +165,45 @@ export function AdminGLBAgent({
         const itemData = accessoryData?.items?.[acc];
         if (itemData?.type !== 'decor') return null;
         
-        // Simple deterministic random placement around the agent
-        const seed = acc.length + i;
-        const x = (Math.sin(seed * 1.1) * 3);
-        const z = (Math.cos(seed * 1.3) * 3);
-        
         const glbPath = acc.startsWith('http') ? acc.replace('.png', '.glb') : `http://localhost:3001${acc.startsWith('/') ? '' : '/'}${acc.replace('.png', '.glb')}`;
+        const transform = decorTransforms[acc];
         
-        // Use global offset if set, otherwise fallback to random base
-        const bx = itemData?.offset ? itemData.offset[0] : x;
-        const by = itemData?.offset ? itemData.offset[1] : 0;
-        const bz = itemData?.offset ? itemData.offset[2] : z;
+        // 1. Saved transform (prioritized)
+        // 2. Global itemData offset
+        // 3. Procedural valid decor point (seeded)
+        // 4. Fallback random float
+        let bx, by, bz;
+        if (transform) {
+          bx = transform.x; by = transform.y; bz = transform.z;
+        } else if (itemData?.offset) {
+          bx = itemData.offset[0]; by = itemData.offset[1]; bz = itemData.offset[2];
+        } else if (decorPoints && decorPoints.length > 0) {
+          const point = decorPoints[(acc.length + i) % decorPoints.length];
+          bx = point.x; by = point.y; bz = point.z;
+        } else {
+          const seed = acc.length + i;
+          bx = (Math.sin(seed * 1.1) * 3);
+          by = 0;
+          bz = (Math.cos(seed * 1.3) * 3);
+        }
         
+        const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
+        const scale = transform?.scale || itemData?.scale || 0.5;
         const isEdited = acc === transformAccessoryPath;
+        const isSelectedDecor = acc === selectedDecorPath;
         
         return (
           <SafeAccessoryBoundary key={`decor-${acc}-${i}`} name={glbPath}>
             <AdminDecorModel 
               url={glbPath} 
+              path={acc}
               position={[bx, by, bz]} 
-              rotation={itemData?.rotation || [0, Math.sin(seed) * Math.PI, 0]} 
-              scale={itemData?.scale || 0.5} 
+              rotation={rotation as any} 
+              scale={scale} 
               transformRef={isEdited ? transformRef : undefined}
+              isSelected={isSelectedDecor}
+              onSelect={() => onSelectDecor && onSelectDecor(acc)}
+              onTransformChange={(t) => onDecorTransformChange && onDecorTransformChange(acc, t)}
             />
           </SafeAccessoryBoundary>
         );
@@ -183,15 +212,53 @@ export function AdminGLBAgent({
   );
 }
 
-function AdminDecorModel({ url, position, rotation, scale, transformRef }: { url: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group> }) {
+function AdminDecorModel({ url, path, position, rotation, scale, transformRef, isSelected, onSelect, onTransformChange }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void }) {
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => SkeletonUtils.clone(scene), [scene]);
+  const localRef = useRef<THREE.Group>(null);
+  
   return (
-    <group position={position} rotation={rotation} scale={scale} ref={transformRef}>
-      <primitive object={cloned} />
-    </group>
+    <>
+      <group 
+        position={position} 
+        rotation={rotation} 
+        scale={scale} 
+        ref={(node) => {
+          localRef.current = node as THREE.Group;
+          if (transformRef) {
+            if (typeof transformRef === 'function') transformRef(node as THREE.Group);
+            else (transformRef as any).current = node;
+          }
+        }}
+        onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
+      >
+        <primitive object={cloned} />
+      </group>
+      {isSelected && localRef.current && (
+        <TransformControls
+          object={localRef.current}
+          mode="translate"
+          space="local"
+          onMouseUp={() => {
+            if (localRef.current && onTransformChange) {
+              onTransformChange({
+                x: localRef.current.position.x,
+                y: localRef.current.position.y,
+                z: localRef.current.position.z,
+                rotationX: localRef.current.rotation.x,
+                rotationY: localRef.current.rotation.y,
+                rotationZ: localRef.current.rotation.z,
+                scale: localRef.current.scale.x
+              });
+            }
+          }}
+        />
+      )}
+    </>
   );
 }
+
+import { TransformControls } from '@react-three/drei';
 
 import { AttachedAccessory } from '../../../../canopy/src/components/World/AttachedAccessory';
 

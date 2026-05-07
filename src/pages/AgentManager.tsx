@@ -98,6 +98,7 @@ export default function AgentManager() {
   const [activeTab, setActiveTab] = useState<'identity' | 'accessories' | 'knowledge' | 'files'>('identity');
   const [globalAccessories, setGlobalAccessories] = useState<any>({ items: {} });
   const [accessorySearch, setAccessorySearch] = useState("");
+  const [selectedDecor, setSelectedDecor] = useState<string | null>(null);
   const [showSuggested, setShowSuggested] = useState(false);
 
   useEffect(() => {
@@ -349,11 +350,38 @@ export default function AgentManager() {
                           <HabitatPreview habitatId={editingAgent?.habitatId} habitats={globalHabitats} />
                           
                           {/* Agent with fully attached 3D accessories */}
-                          <AdminGLBAgent 
-                            robeColor={editingAgent?.robeColor || '#888888'} 
-                            accessories={editingAgent?.accessories || []}
-                            accessoryData={globalAccessories}
-                          />
+                          {(() => {
+                            const habitat = globalHabitats.find(h => h.id === editingAgent?.habitatId);
+                            const placement = habitat?.placement;
+                            const pos: [number, number, number] = placement ? [placement.x, placement.y, placement.z] : [0, -0.23, 0];
+                            const rotY = placement?.rotationY || 0;
+                            
+                            return (
+                              <AdminGLBAgent 
+                                robeColor={editingAgent?.robeColor || '#888888'} 
+                                accessories={editingAgent?.accessories || []}
+                                accessoryData={globalAccessories}
+                                modelPosition={pos}
+                                modelRotationY={rotY}
+                                decorPoints={habitat?.decorPoints || []}
+                                decorTransforms={editingAgent?.visual_identity?.decorTransforms || {}}
+                                selectedDecorPath={selectedDecor}
+                                onSelectDecor={setSelectedDecor}
+                                onDecorTransformChange={(path, transform) => {
+                                  setEditingAgent({
+                                    ...editingAgent,
+                                    visual_identity: {
+                                      ...(editingAgent.visual_identity || {}),
+                                      decorTransforms: {
+                                        ...(editingAgent.visual_identity?.decorTransforms || {}),
+                                        [path]: transform
+                                      }
+                                    }
+                                  });
+                                }}
+                              />
+                            );
+                          })()}
                         </Suspense>
                      </Canvas>
                    </ModelErrorBoundary>
