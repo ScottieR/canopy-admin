@@ -540,6 +540,43 @@ export default function AgentManager() {
                           }
                        }} />
                        
+                       {/* Currently Selected Accessories */}
+                       <div className="pt-4 border-t border-border">
+                         <div className="flex items-center justify-between mb-3">
+                           <h4 className="text-textMain font-bold text-sm">Applied Accessories</h4>
+                           <span className="text-xs font-bold text-textMuted bg-background border border-border px-2 py-0.5 rounded-full">
+                             {(editingAgent?.accessories || []).length} Applied
+                           </span>
+                         </div>
+                         {(editingAgent?.accessories || []).length > 0 ? (
+                           <div className="flex flex-wrap gap-2">
+                             {(editingAgent?.accessories || []).map((path: string) => {
+                               const item = globalAccessories.items?.[path] || {};
+                               return (
+                                 <button 
+                                   key={path}
+                                   title={item.name || path}
+                                   onClick={() => {
+                                      const current = editingAgent?.accessories || [];
+                                      setEditingAgent({ ...editingAgent, accessories: current.filter((p: string) => p !== path) });
+                                   }}
+                                   className="w-16 h-16 rounded-lg border-2 border-primary bg-primary/5 shadow-sm hover:border-red-400 hover:bg-red-50 overflow-hidden transition-all duration-200 relative group flex-shrink-0"
+                                 >
+                                    <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
+                                    <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <X className="text-red-500 stroke-[3px]" size={20} />
+                                    </div>
+                                 </button>
+                               );
+                             })}
+                           </div>
+                         ) : (
+                           <div className="w-full border-2 border-dashed border-border rounded-xl p-4 text-center">
+                             <p className="text-xs font-bold text-textMuted">No accessories applied yet.</p>
+                           </div>
+                         )}
+                       </div>
+
                        {/* Curated/Global List */}
                        <div className="pt-4 border-t border-border">
                          <div className="flex items-center justify-between mb-3">
@@ -568,6 +605,8 @@ export default function AgentManager() {
                             {Object.entries(globalAccessories.items || {})
                               .filter(([path, item]: [string, any]) => {
                                  if (item.isVisible === false) return false;
+                                 
+                                 if (editingAgent?.accessories?.includes(path)) return false;
                                  
                                  let matchesSearch = true;
                                  if (accessorySearch) {

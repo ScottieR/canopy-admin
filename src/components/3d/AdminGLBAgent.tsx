@@ -188,7 +188,7 @@ export function AdminGLBAgent({
         }
         
         const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
-        const scale = transform?.scale || itemData?.scale || 0.5;
+        const scale = transform?.scale || itemData?.scale || 75;
         const isEdited = acc === transformAccessoryPath;
         const isSelectedDecor = acc === selectedDecorPath;
         
@@ -214,7 +214,28 @@ export function AdminGLBAgent({
 
 function AdminDecorModel({ url, path, position, rotation, scale, transformRef, isSelected, onSelect, onTransformChange }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void }) {
   const { scene } = useGLTF(url);
-  const cloned = useMemo(() => SkeletonUtils.clone(scene), [scene]);
+  const cloned = useMemo(() => {
+    const clone = SkeletonUtils.clone(scene);
+    clone.traverse((node: any) => { node.userData = { ...node.userData, isAccessory: true }; });
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    const maxDim = Math.max(size.x, size.y, size.z);
+    if (maxDim > 0) {
+      const scaleFactor = 1.0 / maxDim;
+      clone.scale.setScalar(scaleFactor);
+
+      const scaledBox = new THREE.Box3().setFromObject(clone);
+      const center = new THREE.Vector3();
+      scaledBox.getCenter(center);
+
+      clone.position.x = -center.x;
+      clone.position.z = -center.z;
+      clone.position.y = -scaledBox.min.y;
+    }
+    return clone;
+  }, [scene]);
   const localRef = useRef<THREE.Group>(null);
   
   return (

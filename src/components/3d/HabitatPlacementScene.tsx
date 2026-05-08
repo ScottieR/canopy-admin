@@ -85,33 +85,6 @@ function HabitatModel({ path, decorPoints, placementMode, onDecorPointsChange }:
   }, [scene]);
   const [isDrawing, setIsDrawing] = useState(false);
 
-  useEffect(() => {
-    // If no points are saved, procedurally generate the default ones using our raindrop raycaster
-    if (decorPoints.length === 0 && clonedScene) {
-      const navPoints: { x: number, y: number, z: number }[] = [];
-      const scanRay = new THREE.Raycaster();
-      
-      navPoints.push({ x: 0, y: 0, z: 0 }); // guarantee center is always a point
-      
-      for (let i = 0; i < 200; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * 1.8; // Larger radius because the sandbox model is scaled 2x larger
-        const px = Math.cos(angle) * r;
-        const pz = Math.sin(angle) * r;
-
-        scanRay.set(new THREE.Vector3(px, 50, pz), new THREE.Vector3(0, -1, 0));
-        const hits = scanRay.intersectObject(clonedScene, true);
-        if (hits.length > 0) {
-          const hit = hits[0];
-          if (hit.face && hit.face.normal.y > 0.85) {
-            navPoints.push({ x: hit.point.x, y: hit.point.y, z: hit.point.z });
-          }
-        }
-      }
-      onDecorPointsChange(navPoints);
-    }
-  }, [decorPoints.length, clonedScene, onDecorPointsChange]);
-
   const handleInteract = (point: THREE.Vector3) => {
     if (placementMode === 'paint') {
       const isTooClose = decorPoints.some(p => {

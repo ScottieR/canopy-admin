@@ -55,10 +55,10 @@ const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
 // --- Seed Default Accessories if missing ---
 if (!fs.existsSync(ACCESSORIES_FILE)) {
   const defaultAccs = { items: {}, defaults: {} };
-  for(let s=1; s<=6; s++) {
-    for(let i=1; i<=25; i++) {
-       const key = `/accessories/accessories_set_${s}_item_${String(i).padStart(2, '0')}.png`;
-       defaultAccs.items[key] = { isVisible: true };
+  for (let s = 1; s <= 6; s++) {
+    for (let i = 1; i <= 25; i++) {
+      const key = `/accessories/accessories_set_${s}_item_${String(i).padStart(2, '0')}.png`;
+      defaultAccs.items[key] = { isVisible: true };
     }
   }
   // Base Defaults
@@ -150,7 +150,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
     if (!response.ok) return res.status(500).json({ error: "Gemini API failed" });
     const data = await response.json();
     let textResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "{}";
-    
+
     if (textResult.startsWith('\`\`\`')) {
       textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
     }
@@ -167,10 +167,10 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
 
     // If needsCompanion is true, we scaffold a companion window component
     if (newConnector.needsCompanion) {
-       const companionName = newConnector.id.charAt(0).toUpperCase() + newConnector.id.slice(1) + 'Companion.tsx';
-       const companionPath = path.join(__dirname, '../canopy/src/components/Companion', companionName);
-       if (!fs.existsSync(companionPath)) {
-         const template = `import { useState } from "react";
+      const companionName = newConnector.id.charAt(0).toUpperCase() + newConnector.id.slice(1) + 'Companion.tsx';
+      const companionPath = path.join(__dirname, '../canopy/src/components/Companion', companionName);
+      if (!fs.existsSync(companionPath)) {
+        const template = `import { useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -223,8 +223,8 @@ export function \${companionName.replace('.tsx','')} () {
   );
 }
 `;
-         fs.writeFileSync(companionPath, template, 'utf8');
-       }
+        fs.writeFileSync(companionPath, template, 'utf8');
+      }
     }
 
     res.json(newConnector);
@@ -301,14 +301,14 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
     });
 
     if (!response.ok) {
-       const text = await response.text();
-       console.error("Gemini API Error:", text);
-       return res.status(500).json({ error: "Gemini API generation failed" });
+      const text = await response.text();
+      console.error("Gemini API Error:", text);
+      return res.status(500).json({ error: "Gemini API generation failed" });
     }
 
     const data = await response.json();
     let textResult = data.candidates[0].content.parts[0].text.trim();
-    
+
     // Strip possible markdown
     if (textResult.startsWith('\`\`\`')) {
       textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
@@ -317,7 +317,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
     const parsedParams = JSON.parse(textResult);
 
     const aestheticPrompt = `${prompt}, visually matching a cute isometric pastel 3D style monument valley game, vivid colors ${parsedParams.color}, ${parsedParams.habitatLabel}`;
-    
+
     res.json({
       compiledImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(aestheticPrompt)}?width=600&height=400&nologo=true`,
       dynamicParams: {
@@ -366,14 +366,14 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
     let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
 
     if (result && result.includes("YES")) {
-       return res.status(403).json({ error: "Book rejected as unsafe" });
+      return res.status(403).json({ error: "Book rejected as unsafe" });
     }
 
     if (fs.existsSync(AGENTS_FILE)) {
       let agents = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
       if (agents[role]) {
         if (!agents[role].library) agents[role].library = [];
-        
+
         // Deduplicate
         const existing = agents[role].library.find(b => b.title.toLowerCase() === bookTitle.toLowerCase());
         if (!existing) {
@@ -392,17 +392,17 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
 // --- DYNAMIC COMPANION TELEMETRY ---
 let latestTelemetryPayload = "";
 app.post('/api/telemetry/target', (req, res) => {
-   if (req.body && req.body.domText) {
-      latestTelemetryPayload = req.body.domText;
-   }
-   res.json({ success: true });
+  if (req.body && req.body.domText) {
+    latestTelemetryPayload = req.body.domText;
+  }
+  res.json({ success: true });
 });
 
 app.post('/api/analyze-screen', async (req, res) => {
-   if (!GEMINI_API_KEY) return res.status(500).json({ error: "Missing config" });
-   if (!latestTelemetryPayload) return res.json({ instruction: "Waiting for the browser to load..." });
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: "Missing config" });
+  if (!latestTelemetryPayload) return res.json({ instruction: "Waiting for the browser to load..." });
 
-   const checkPrompt = `You are a helpful software setup companion UI. The user is currently configuring their Slack App Integration.
+  const checkPrompt = `You are a helpful software setup companion UI. The user is currently configuring their Slack App Integration.
 Based on the raw text scraped from their current screen (below), determine EXACTLY what they need to do next. 
 If they are on the Workspace Selection screen, tell them to select a workspace. 
 If they are on the manifest review screen, tell them to hit 'Next' or 'Create'.
@@ -417,7 +417,7 @@ Raw Screen Text:
 ${latestTelemetryPayload.substring(0, 8000)}
 """`;
 
-   try {
+  try {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -429,9 +429,9 @@ ${latestTelemetryPayload.substring(0, 8000)}
     const data = await response.json();
     let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Analyzing screen...";
     return res.json({ instruction: result });
-   } catch (e) {
-      return res.json({ instruction: "Connection temporarily lost." });
-   }
+  } catch (e) {
+    return res.json({ instruction: "Connection temporarily lost." });
+  }
 });
 createJsonApi('/api/agents', AGENTS_FILE);
 createJsonApi('/api/library', LIBRARY_FILE);
@@ -451,14 +451,14 @@ function getProvider(modelId) {
 function getRealStats() {
   const dbPath = path.join(os.homedir(), 'Library/Application Support/Canopy/canopy.db');
   console.log(`[TELEMETRY] Querying database at: ${dbPath}`);
-  
+
   try {
     if (!fs.existsSync(dbPath)) {
       console.error(`[TELEMETRY] Database file NOT FOUND at: ${dbPath}`);
       return null;
     }
     const db = new Database(dbPath, { readonly: true });
-    
+
     // 1. Active agents today
     const todayStr = new Date().toISOString().split('T')[0];
     const activeAgentsRow = db.prepare(`
@@ -470,7 +470,7 @@ function getRealStats() {
 
     // 1b. Total agents created (ever)
     const totalCreatedRow = db.prepare(`SELECT count(*) as count FROM agents`).get();
-    
+
     // 1c. Total agents active (not deleted or paused)
     const totalActiveRow = db.prepare(`SELECT count(*) as count FROM agents WHERE status = 'active' AND paused = 0`).get();
 
@@ -498,7 +498,7 @@ function getRealStats() {
           try {
             const personality = JSON.parse(row.personality_json);
             provider = getProvider(personality.active_model || personality.model);
-          } catch(e) {}
+          } catch (e) { }
         }
         const tokens = Math.floor(parseInt(row.char_count || 0, 10) / 4);
         dayUsage[provider] += tokens;
@@ -526,7 +526,7 @@ function getRealStats() {
     db.close();
     const activeCount = parseInt(activeAgentsRow?.count || 0, 10);
     console.log(`[TELEMETRY] Extracted usage for ${todayStr}. Active: ${activeCount}`);
-    
+
     return {
       activeAgentsDaily: activeCount,
       totalAgentsCreated: parseInt(totalCreatedRow?.count || 0, 10),
@@ -544,12 +544,12 @@ function getRealStats() {
 app.get('/api/stats', (req, res) => {
   const real = getRealStats();
   if (real) return res.json(real);
-  
+
   // If we get here, DB is missing or failed - return empty real structure
-  res.status(503).json({ 
+  res.status(503).json({
     error: "Canopy database unreachable",
-    tokenUsageData: [], 
-    personaAdoptionData: { usage: [], downloads: [] } 
+    tokenUsageData: [],
+    personaAdoptionData: { usage: [], downloads: [] }
   });
 });
 createJsonApi('/api/pricing', PRICING_FILE);
@@ -597,14 +597,14 @@ app.post('/api/usage', (req, res) => {
 app.get('/api/stats', (req, res) => {
   try {
     if (!fs.existsSync(STATS_FILE)) return res.json({ tokenUsageData: [], personaAdoptionData: { usage: [], downloads: [] }, activeAgentsDaily: 0 });
-    
+
     const rawStats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
     const agents = fs.existsSync(AGENTS_FILE) ? JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8')) : {};
-    
+
     // Aggregate data
     const agentIds = Object.keys(rawStats);
     const activeAgentsDaily = agentIds.length;
-    
+
     // Build persona adoption (by usage count)
     const personaUsage = {};
     let totalIn = 0;
@@ -626,13 +626,13 @@ app.get('/api/stats', (req, res) => {
     // Build token usage (mock historical for UI vibe, using real totals for the last point)
     const tokenUsageData = [
       { day: 'Start', google: 0, openai: 0, anthropic: 0, xai: 0, other: 0 },
-      { 
-        day: new Date().toLocaleDateString('en-US', { weekday: 'short' }), 
-        google: Math.floor(totalOut * 0.4), 
-        openai: Math.floor(totalOut * 0.3), 
-        anthropic: Math.floor(totalOut * 0.2), 
-        xai: Math.floor(totalOut * 0.05), 
-        other: Math.floor(totalOut * 0.05) 
+      {
+        day: new Date().toLocaleDateString('en-US', { weekday: 'short' }),
+        google: Math.floor(totalOut * 0.4),
+        openai: Math.floor(totalOut * 0.3),
+        anthropic: Math.floor(totalOut * 0.2),
+        xai: Math.floor(totalOut * 0.05),
+        other: Math.floor(totalOut * 0.05)
       }
     ];
 
@@ -658,23 +658,23 @@ async function syncPricingAndModels() {
     const res = await fetch("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json");
     if (!res.ok) throw new Error("Failed to fetch LiteLLM pricing");
     const data = await res.json();
-    
+
     // All model IDs use "provider/model-name" format matching OpenClaw's expectation.
     // LiteLLM pricing keys use the bare model name (no prefix), so we look them up
     // by bare name but store results under the prefixed key.
     const litellmPrice = (bareKey, fallbackIn, fallbackOut) => ({
-      in:  (data[bareKey]?.input_cost_per_token  || fallbackIn)  * 1000000,
+      in: (data[bareKey]?.input_cost_per_token || fallbackIn) * 1000000,
       out: (data[bareKey]?.output_cost_per_token || fallbackOut) * 1000000,
     });
 
     const mappedPricing = {
-      "anthropic/claude-sonnet-4-6":        litellmPrice("claude-sonnet-4-6",        0.000003,    0.000015),
-      "anthropic/claude-haiku-4-5-20251001": litellmPrice("claude-haiku-4-5-20251001",0.0000008,   0.000004),
-      "anthropic/claude-opus-4-6":           litellmPrice("claude-opus-4-6",           0.000015,    0.000075),
-      "openai/gpt-4o":                       litellmPrice("gpt-4o",                    0.0000025,   0.00001),
-      "openai/gpt-4o-mini":                  litellmPrice("gpt-4o-mini",               0.00000015,  0.0000006),
-      "openai/o4-mini":                      litellmPrice("o4-mini",                   0.0000011,   0.0000044),
-      "xai/grok-beta":                       litellmPrice("grok-beta",                 0.000005,    0.000015),
+      "anthropic/claude-sonnet-4-6": litellmPrice("claude-sonnet-4-6", 0.000003, 0.000015),
+      "anthropic/claude-haiku-4-5-20251001": litellmPrice("claude-haiku-4-5-20251001", 0.0000008, 0.000004),
+      "anthropic/claude-opus-4-6": litellmPrice("claude-opus-4-6", 0.000015, 0.000075),
+      "openai/gpt-4o": litellmPrice("gpt-4o", 0.0000025, 0.00001),
+      "openai/gpt-4o-mini": litellmPrice("gpt-4o-mini", 0.00000015, 0.0000006),
+      "openai/o4-mini": litellmPrice("o4-mini", 0.0000011, 0.0000044),
+      "xai/grok-beta": litellmPrice("grok-beta", 0.000005, 0.000015),
     };
 
     let modelList = [
@@ -745,13 +745,13 @@ async function syncPricingAndModels() {
     // Costs are estimates; the live Google API fetch below will overwrite with real pricing.
     const CANONICAL_GEMINI = [
       // Gemini 3.x — Preview, no shutdown date announced
-      { bare: "gemini-3-flash-preview",        name: "Gemini 3 Flash",        strategy: "light",  costIn: 0.15,  costOut: 0.6,  description: "Preview — successor to 2.5 Flash" },
-      { bare: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", strategy: "light",  costIn: 0.075, costOut: 0.3,  description: "Preview — successor to 2.5 Flash Lite" },
-      { bare: "gemini-3.1-pro-preview",        name: "Gemini 3.1 Pro",        strategy: "heavy",  costIn: 1.25,  costOut: 5.0,  description: "Preview — successor to 2.5 Pro" },
+      { bare: "gemini-3-flash-preview", name: "Gemini 3 Flash", strategy: "light", costIn: 0.15, costOut: 0.6, description: "Preview — successor to 2.5 Flash" },
+      { bare: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Preview — successor to 2.5 Flash Lite" },
+      { bare: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", strategy: "heavy", costIn: 1.25, costOut: 5.0, description: "Preview — successor to 2.5 Pro" },
       // Gemini 2.5 — Stable GA, shutdown not before June 2026
-      { bare: "gemini-2.5-flash",              name: "Gemini 2.5 Flash",      strategy: "light",  costIn: 0.15,  costOut: 0.6,  description: "Stable — recommended default" },
-      { bare: "gemini-2.5-flash-lite",         name: "Gemini 2.5 Flash Lite", strategy: "light",  costIn: 0.075, costOut: 0.3,  description: "Stable — fastest/cheapest" },
-      { bare: "gemini-2.5-pro",                name: "Gemini 2.5 Pro",        strategy: "heavy",  costIn: 1.25,  costOut: 10.0, description: "Stable — flagship model" },
+      { bare: "gemini-2.5-flash", name: "Gemini 2.5 Flash", strategy: "light", costIn: 0.15, costOut: 0.6, description: "Stable — recommended default" },
+      { bare: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Stable — fastest/cheapest" },
+      { bare: "gemini-2.5-pro", name: "Gemini 2.5 Pro", strategy: "heavy", costIn: 1.25, costOut: 10.0, description: "Stable — flagship model" },
     ];
 
     // Step 3: Fetch live pricing from Google API (if key available) to update costs.
@@ -768,15 +768,15 @@ async function syncPricingAndModels() {
             if (deprecatedBareNames.has(bareName)) continue;
             if (!m.supportedGenerationMethods?.includes("generateContent")) continue;
             if (bareName.includes("embedding") || bareName.includes("aqa") ||
-                bareName.includes("tts") || bareName.includes("image") ||
-                bareName.includes("live") || bareName.includes("robotics") ||
-                bareName.includes("computer-use")) continue;
+              bareName.includes("tts") || bareName.includes("image") ||
+              bareName.includes("live") || bareName.includes("robotics") ||
+              bareName.includes("computer-use")) continue;
             // Update pricing in canonical list if this model is there
             const canonical = CANONICAL_GEMINI.find(c => c.bare === bareName);
             if (canonical) {
-              const costIn  = (data[`gemini/${bareName}`]?.input_cost_per_token  || data[bareName]?.input_cost_per_token)  * 1000000;
+              const costIn = (data[`gemini/${bareName}`]?.input_cost_per_token || data[bareName]?.input_cost_per_token) * 1000000;
               const costOut = (data[`gemini/${bareName}`]?.output_cost_per_token || data[bareName]?.output_cost_per_token) * 1000000;
-              if (costIn)  canonical.costIn  = costIn;
+              if (costIn) canonical.costIn = costIn;
               if (costOut) canonical.costOut = costOut;
             }
           }
@@ -790,7 +790,7 @@ async function syncPricingAndModels() {
     for (const { bare, name, strategy, costIn, costOut, description } of CANONICAL_GEMINI) {
       const isDeprecated = deprecatedBareNames.has(bare);
       const status = isDeprecated ? "deprecated" : (bare.includes("preview") ? "preview" : "stable");
-      
+
       const fullId = `google/${bare}`;
       if (!isDeprecated) {
         mappedPricing[fullId] = { in: costIn, out: costOut };
@@ -822,10 +822,10 @@ async function syncPricingAndModels() {
       }
     };
     fs.writeFileSync(MODELS_FILE, JSON.stringify(modelStrategies, null, 2), "utf8");
-    
+
     console.log("Successfully synced local pricing.json and dynamic models.json oracles!");
     return { success: true, count: modelList.length };
-  } catch(e) {
+  } catch (e) {
     console.error("Pricing/Model sync failed:", e);
     return { success: false, error: e.message };
   }
@@ -844,13 +844,13 @@ app.post('/api/generate-accessories-2d', async (req, res) => {
   const injectedPrompt = `You are a 3D prop extractor. 
 Extract individual accessories/items from the following user request.
 Output ONLY a JSON array of strings, where each string is a highly descriptive prompt for a 3D prop.
-Keep them simple, blocky, pastel colored, isometric.
+Keep them simple, blocky, pastel colored, isometric. The item should be floating on a white background, no ground or platform or rock object below it.
 User Request: ${prompt}`;
 
   try {
     let items = [prompt];
     if (GEMINI_API_KEY) {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: injectedPrompt }] }] })
       });
@@ -862,10 +862,10 @@ User Request: ${prompt}`;
         items = JSON.parse(textResult);
       }
     }
-    
+
     // Convert to pollinations images with a local proxy to avoid broken external links
     const images = items.map(item => {
-      const fullPrompt = `${item}, single isolated object floating in the center, pure solid white background, no environment, no ground, low poly primitive shapes, smooth lighting, pastel colors, 3d game asset, monument valley style, cute`;
+      const fullPrompt = `${item}, single isolated object floating in empty space, pure solid white background, NO base, NO platform, NO ground, NO shadow below, NO pedestal, low poly primitive shapes, smooth lighting, pastel colors, 3d game asset, cute`;
       const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 100000)}`;
       return {
         prompt: item,
@@ -883,14 +883,14 @@ User Request: ${prompt}`;
 app.get('/api/proxy-image', async (req, res) => {
   const imageUrl = req.query.url;
   if (!imageUrl) return res.status(400).send('Missing url');
-  
+
   try {
     const response = await fetch(imageUrl);
     if (!response.ok) throw new Error(`External fetch failed: ${response.status}`);
-    
+
     const buffer = await response.arrayBuffer();
     const contentType = response.headers.get('content-type') || 'image/jpeg';
-    
+
     res.set('Content-Type', contentType);
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(Buffer.from(buffer));
@@ -905,11 +905,11 @@ async function uploadToPublicBridge(localPath) {
   if (!fs.existsSync(fullPath)) throw new Error("Local file not found at: " + fullPath);
 
   console.log(`[BRIDGE] Uploading local asset to public bridge: ${localPath}`);
-  
+
   try {
     const fileBuffer = fs.readFileSync(fullPath);
     const fileName = path.basename(localPath);
-    
+
     const formData = new globalThis.FormData();
     const blob = new globalThis.Blob([fileBuffer], { type: 'image/png' });
     formData.append('reqtype', 'fileupload');
@@ -948,7 +948,7 @@ app.post('/api/meshy-task', async (req, res) => {
 
   try {
     let targetUrl = imageUrl;
-    
+
     // Handle relative paths by bridging them to a public URL
     if (imageUrl.startsWith('/')) {
       try {
@@ -972,13 +972,13 @@ app.post('/api/meshy-task', async (req, res) => {
         enable_pbr: true,
       })
     });
-    
+
     const data = await response.json();
     if (!response.ok) {
       console.error("[MESHY] API Error Response:", data);
       throw new Error(data.message || data.error?.message || 'Meshy API rejected the request');
     }
-    
+
     const taskId = data.result;
     taskIdToPath.set(taskId, imageUrl);
     console.log("[MESHY] Task started successfully:", taskId);
@@ -998,13 +998,13 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
       headers: { 'Authorization': `Bearer ${MESHY_API_KEY}` }
     });
     const data = await response.json();
-    
+
     if (data.status === 'SUCCEEDED') {
       const originalPath = taskIdToPath.get(taskId);
       const glbUrl = data.model_urls.glb;
       const download = await fetch(glbUrl);
       const buffer = Buffer.from(await download.arrayBuffer());
-      
+
       let fileName = `meshy_${taskId}.glb`;
       if (originalPath && originalPath.includes('.')) {
         // Use original base name but with .glb extension
@@ -1013,28 +1013,28 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
 
       const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
       fs.writeFileSync(savePath, buffer);
-      
+
       console.log(`[MESHY] Saved GLB to: ${savePath}`);
 
       // If this was generated from a Pollinations URL (AI generator), download and save the 2D image too
       if (originalPath && (originalPath.includes('/api/proxy-image?url=') || originalPath.includes('pollinations.ai'))) {
-         try {
-             const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
-             const imgRes = await fetch(trueUrl);
-             const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-             const pngFileName = fileName.replace('.glb', '.png');
-             const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
-             fs.writeFileSync(pngSavePath, imgBuffer);
-             console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
-         } catch (imgErr) {
-             console.error("[MESHY] Failed to download source PNG:", imgErr);
-         }
+        try {
+          const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
+          const imgRes = await fetch(trueUrl);
+          const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+          const pngFileName = fileName.replace('.glb', '.png');
+          const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
+          fs.writeFileSync(pngSavePath, imgBuffer);
+          console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
+        } catch (imgErr) {
+          console.error("[MESHY] Failed to download source PNG:", imgErr);
+        }
       }
 
       taskIdToPath.delete(taskId);
       return res.json({ success: true, status: data.status, glbPath: `/accessories/${fileName}` });
     }
-    
+
     res.json({ success: true, status: data.status, progress: data.progress });
   } catch (e) {
     console.error(e);
@@ -1050,7 +1050,7 @@ app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
     const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
     const savePath = path.join(__dirname, '../canopy/public/agents', fileName);
     fs.renameSync(file.path, savePath);
-    
+
     res.json({ success: true, imagePath: `/agents/${fileName}` });
   } catch (e) {
     console.error(e);
@@ -1061,20 +1061,20 @@ app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
 app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
   try {
     const uploadedFiles = [];
-    if (!fs.existsSync(ACCESSORIES_FILE)) return res.status(500).json({error: 'Accessories JSON missing'});
+    if (!fs.existsSync(ACCESSORIES_FILE)) return res.status(500).json({ error: 'Accessories JSON missing' });
     const accData = JSON.parse(fs.readFileSync(ACCESSORIES_FILE, 'utf8'));
 
     for (const file of req.files) {
-       const ext = path.extname(file.originalname).toLowerCase();
-       const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
-       const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
-       fs.renameSync(file.path, savePath);
-       
-       const relativePath = `/accessories/${fileName}`;
-       accData.items[relativePath] = { isVisible: true, manualUpload: true };
-       uploadedFiles.push(relativePath);
+      const ext = path.extname(file.originalname).toLowerCase();
+      const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+      const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
+      fs.renameSync(file.path, savePath);
+
+      const relativePath = `/accessories/${fileName}`;
+      accData.items[relativePath] = { isVisible: true, manualUpload: true };
+      uploadedFiles.push(relativePath);
     }
-    
+
     fs.writeFileSync(ACCESSORIES_FILE, JSON.stringify(accData, null, 2));
     res.json({ success: true, files: uploadedFiles });
   } catch (e) {
@@ -1101,14 +1101,14 @@ app.get('*all', (req, res) => {
   const isFile = url.includes('.');
 
   if (isHtml && !isFile) {
-     const indexPath = path.join(__dirname, 'dist/index.html');
-     if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-     } else {
-        res.status(404).send('Not Found (Admin Frontend not built or Vite not running)');
-     }
+    const indexPath = path.join(__dirname, 'dist/index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send('Not Found (Admin Frontend not built or Vite not running)');
+    }
   } else {
-     res.status(404).json({ error: 'Not Found' });
+    res.status(404).json({ error: 'Not Found' });
   }
 });
 

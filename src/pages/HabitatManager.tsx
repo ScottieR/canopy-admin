@@ -1,8 +1,54 @@
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import { Layers, Plus, Trash2, Save, Move3d, X, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
+import { useGLTF, OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
+import { SkeletonUtils } from 'three-stdlib';
 import { HabitatPlacementScene } from '../components/3d/HabitatPlacementScene';
+
+function HabitatThumbPreview({ path }: { path: string }) {
+  const { scene } = useGLTF(path.startsWith('http') ? path : `http://localhost:3001${path.startsWith('/') ? '' : '/'}${path}`);
+  
+  const clonedScene = useMemo(() => {
+    const clone = SkeletonUtils.clone(scene);
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = box.getSize(new THREE.Vector3());
+
+    const maxDim = Math.max(size.x, size.z);
+    const targetScale = maxDim > 0 ? (2.2 / maxDim) : 1;
+    clone.scale.set(targetScale, targetScale, targetScale);
+    clone.updateMatrixWorld(true);
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.set(new THREE.Vector3(0, 50, 0), new THREE.Vector3(0, -1, 0));
+    const intersects = raycaster.intersectObject(clone, true);
+    if (intersects.length > 0) {
+      clone.position.y = -intersects[0].point.y;
+    } else {
+      clone.position.y = -(box.max.y * targetScale);
+    }
+    
+    clone.traverse((child: any) => {
+      if (child.isMesh && child.material && child.material.map) {
+        const safeMap = child.material.map.clone();
+        safeMap.needsUpdate = true;
+        child.material = new THREE.MeshBasicMaterial({ map: safeMap });
+      }
+    });
+
+    return clone;
+  }, [scene]);
+
+  return (
+    <Canvas camera={{ position: [2.5, 2, 2.5], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
+      <OrbitControls makeDefault enableZoom={false} enablePan={false} autoRotate autoRotateSpeed={0.5} />
+      <ambientLight intensity={1.5} />
+      <directionalLight position={[5, 8, 5]} intensity={2.5} />
+      <primitive object={clonedScene} />
+    </Canvas>
+  );
+}
 
 export default function HabitatManager() {
   const [habitats, setHabitats] = useState<any[]>([]);
@@ -111,17 +157,9 @@ export default function HabitatManager() {
           >
             <div className="h-48 w-full bg-surface relative flex items-center justify-center border-b border-border/50">
                {habitat.path && habitat.type === 'glb' ? (
-                 <>
-                   <img 
-                     src={habitat.path.startsWith('http') ? habitat.path.replace('.glb', '.png') : `http://localhost:3001${habitat.path.startsWith('/') ? '' : '/'}${habitat.path.replace('.glb', '.png')}`}
-                     alt={habitat.name}
-                     className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                     onError={(e) => { (e.target as any).style.display = 'none'; }}
-                   />
-                   <div className="absolute inset-0 flex items-center justify-center text-outline-variant" style={{ zIndex: -1 }}>
-                      <ImageIcon size={32} />
-                   </div>
-                 </>
+                 <Suspense fallback={<ImageIcon size={32} className="text-outline-variant" />}>
+                   <HabitatThumbPreview path={habitat.path} />
+                 </Suspense>
                ) : (
                  <div className="text-outline-variant">
                     <ImageIcon size={32} />
