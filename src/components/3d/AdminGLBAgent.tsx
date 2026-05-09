@@ -37,8 +37,12 @@ export function AdminGLBAgent({
   decorTransforms = {},
   decorPoints = [],
   selectedDecorPath = null,
+  transformMode = 'translate',
   onSelectDecor = undefined,
-  onDecorTransformChange = undefined
+  onDecorTransformChange = undefined,
+  onSelectAccessory = undefined,
+  accessoryBehaviors = {},
+  onDraggingDecor = undefined
 }: {
   robeColor?: string,
   forceAnimation?: string,
@@ -53,8 +57,10 @@ export function AdminGLBAgent({
   decorTransforms?: Record<string, any>,
   decorPoints?: {x: number, y: number, z: number}[],
   selectedDecorPath?: string | null,
-  onSelectDecor?: (path: string) => void,
-  onDecorTransformChange?: (path: string, transform: any) => void
+  transformMode?: 'translate' | 'rotate' | 'scale',
+  onSelectAccessory?: (path: string) => void,
+  accessoryBehaviors?: Record<string, 'wearable' | 'decor'>,
+  onDraggingDecor?: (dragging: boolean) => void
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
@@ -139,80 +145,92 @@ export function AdminGLBAgent({
     return () => { if (action) action.fadeOut(0.5); };
   }, [actions, names, forceAnimation]);
 
-  return (
-    <group ref={groupRef} position={modelPosition} rotation={[0, modelRotationY, 0]} scale={modelScale} dispose={null}>
-      <primitive object={clonedScene} />
-      {accessories.map((acc, i) => {
-        const itemData = accessoryData?.items?.[acc];
-        if (itemData?.type === 'decor') return null; // Don't attach strict decor to the agent body!
-        
-        console.log(`[AdminGLBAgent] Rendering accessory: ${acc}`, { scale: itemData?.scale, offset: itemData?.offset });
-        const isEdited = acc === transformAccessoryPath;
-        return (
-          <SafeAccessoryBoundary key={`${acc}-${i}`} name={acc}>
-            <AttachedAccessory 
-              path={acc} 
-              accessoryData={accessoryData} 
-              clonedSceneRoot={clonedScene} 
-              transformRef={isEdited ? transformRef : undefined}
-            />
-          </SafeAccessoryBoundary>
-        );
-      })}
+    return (
+    <>
+      <group ref={groupRef} position={modelPosition} rotation={[0, modelRotationY, 0]} scale={modelScale} dispose={null}>
+        <primitive object={clonedScene} />
+        {accessories.map((acc, i) => {
+          const itemData = accessoryData?.items?.[acc];
+          const behavior = accessoryBehaviors?.[acc] || itemData?.type || 'accessory';
+          if (behavior === 'decor') return null; // Don't attach strict decor to the agent body!
+          
+          console.log(`[AdminGLBAgent] Rendering accessory: ${acc}`, { scale: itemData?.scale, offset: itemData?.offset });
+          const isEdited = acc === transformAccessoryPath;
+          return (
+            <SafeAccessoryBoundary key={`${acc}-${i}`} name={acc}>
+              <group onClick={(e) => { e.stopPropagation(); if (onSelectAccessory) onSelectAccessory(acc); }} onPointerOver={() => { document.body.style.cursor = onSelectAccessory ? 'pointer' : 'auto'; }} onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
+                <AttachedAccessory 
+                  path={acc} 
+                  accessoryData={accessoryData} 
+                  clonedSceneRoot={clonedScene} 
+                  transformRef={isEdited ? transformRef : undefined}
+                />
+              </group>
+            </SafeAccessoryBoundary>
+          );
+        })}
+      </group>
       
-      {/* Render Decor Items */}
-      {accessories.map((acc, i) => {
-        const itemData = accessoryData?.items?.[acc];
-        if (itemData?.type !== 'decor') return null;
-        
-        const glbPath = acc.startsWith('http') ? acc.replace('.png', '.glb') : `http://localhost:3001${acc.startsWith('/') ? '' : '/'}${acc.replace('.png', '.glb')}`;
-        const transform = decorTransforms[acc];
-        
-        // 1. Saved transform (prioritized)
-        // 2. Global itemData offset
-        // 3. Procedural valid decor point (seeded)
-        // 4. Fallback random float
-        let bx, by, bz;
-        if (transform) {
-          bx = transform.x; by = transform.y; bz = transform.z;
-        } else if (itemData?.offset) {
-          bx = itemData.offset[0]; by = itemData.offset[1]; bz = itemData.offset[2];
-        } else if (decorPoints && decorPoints.length > 0) {
-          const point = decorPoints[(acc.length + i) % decorPoints.length];
-          bx = point.x; by = point.y; bz = point.z;
-        } else {
-          const seed = acc.length + i;
-          bx = (Math.sin(seed * 1.1) * 3);
-          by = 0;
-          bz = (Math.cos(seed * 1.3) * 3);
-        }
-        
-        const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
-        const scale = transform?.scale || itemData?.scale || 75;
-        const isEdited = acc === transformAccessoryPath;
-        const isSelectedDecor = acc === selectedDecorPath;
-        
-        return (
-          <SafeAccessoryBoundary key={`decor-${acc}-${i}`} name={glbPath}>
-            <AdminDecorModel 
-              url={glbPath} 
-              path={acc}
-              position={[bx, by, bz]} 
-              rotation={rotation as any} 
-              scale={scale} 
-              transformRef={isEdited ? transformRef : undefined}
-              isSelected={isSelectedDecor}
-              onSelect={() => onSelectDecor && onSelectDecor(acc)}
-              onTransformChange={(t) => onDecorTransformChange && onDecorTransformChange(acc, t)}
-            />
-          </SafeAccessoryBoundary>
-        );
-      })}
-    </group>
+      {/* Render Decor Items in World Space */}
+      <group>
+        {accessories.map((acc, i) => {
+          const itemData = accessoryData?.items?.[acc];
+          const behavior = accessoryBehaviors?.[acc] || itemData?.type || 'accessory';
+          if (behavior !== 'decor') return null;
+          
+          const glbPath = acc.startsWith('http') ? acc.replace('.png', '.glb') : `http://localhost:3001${acc.startsWith('/') ? '' : '/'}${acc.replace('.png', '.glb')}`;
+          const transform = decorTransforms[acc];
+          
+          // 1. Saved transform (prioritized)
+          // 2. Procedural valid decor point (seeded)
+          // 3. Fallback random float
+          let bx, by, bz;
+          if (transform) {
+            bx = transform.x; by = transform.y; bz = transform.z;
+          } else if (decorPoints && decorPoints.length > 0) {
+            const point = decorPoints[(acc.length + i) % decorPoints.length];
+            bx = point.x; by = point.y; bz = point.z;
+          } else {
+            const seed = acc.length + i;
+            bx = (Math.sin(seed * 1.1) * 3);
+            by = 0;
+            bz = (Math.cos(seed * 1.3) * 3);
+          }
+          
+          const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
+          // Decor is placed in world space (or scaled lobster space), whereas accessories are placed on bones
+          // The standard rig bones have a scale of ~0.01, so an accessory scale of 75 looks like 0.75. 
+          // We multiply the decor scale by 0.01 here so they are consistent sizes.
+          const baseScale = transform?.scale || itemData?.scale || 75;
+          // Apply modelScale visually so decor matches the lobster preview size
+          const scale = baseScale * 0.01 * (modelScale / 0.5); 
+          const isEdited = acc === transformAccessoryPath;
+          const isSelectedDecor = acc === selectedDecorPath;
+          
+          return (
+            <SafeAccessoryBoundary key={`decor-${acc}-${i}`} name={glbPath}>
+              <AdminDecorModel 
+                url={glbPath} 
+                path={acc}
+                position={[bx, by, bz]} 
+                rotation={rotation as any} 
+                scale={scale} 
+                transformMode={transformMode}
+                transformRef={isEdited ? transformRef : undefined}
+                isSelected={isSelectedDecor}
+                onSelect={() => onSelectDecor && onSelectDecor(acc)}
+                onTransformChange={(t) => onDecorTransformChange && onDecorTransformChange(acc, t)}
+                onDraggingChanged={onDraggingDecor}
+              />
+            </SafeAccessoryBoundary>
+          );
+        })}
+      </group>
+    </>
   );
 }
 
-function AdminDecorModel({ url, path, position, rotation, scale, transformRef, isSelected, onSelect, onTransformChange }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void }) {
+function AdminDecorModel({ url, path, position, rotation, scale, transformRef, transformMode = 'translate', isSelected, onSelect, onTransformChange, onDraggingChanged }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, transformMode?: 'translate'|'rotate'|'scale', isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void, onDraggingChanged?: (b: boolean) => void }) {
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);
@@ -258,19 +276,24 @@ function AdminDecorModel({ url, path, position, rotation, scale, transformRef, i
       {isSelected && localRef.current && (
         <TransformControls
           object={localRef.current}
-          mode="translate"
+          mode={transformMode}
           space="local"
-          onMouseUp={() => {
+          onDraggingChanged={(e) => onDraggingChanged && onDraggingChanged(e.value)}
+          onChange={() => {
             if (localRef.current && onTransformChange) {
-              onTransformChange({
-                x: localRef.current.position.x,
-                y: localRef.current.position.y,
-                z: localRef.current.position.z,
-                rotationX: localRef.current.rotation.x,
-                rotationY: localRef.current.rotation.y,
-                rotationZ: localRef.current.rotation.z,
-                scale: localRef.current.scale.x
-              });
+              const currentPos = localRef.current.position;
+              // Add a small threshold to avoid excessive React state updates while rendering
+              if (Math.abs(currentPos.x - position[0]) > 0.001 || Math.abs(currentPos.y - position[1]) > 0.001 || Math.abs(currentPos.z - position[2]) > 0.001) {
+                onTransformChange({
+                  x: currentPos.x,
+                  y: currentPos.y,
+                  z: currentPos.z,
+                  rotationX: localRef.current.rotation.x,
+                  rotationY: localRef.current.rotation.y,
+                  rotationZ: localRef.current.rotation.z,
+                  scale: localRef.current.scale.x * 100
+                });
+              }
             }
           }}
         />

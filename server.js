@@ -291,7 +291,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 }`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -841,9 +841,9 @@ app.post('/api/generate-accessories-2d', async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: 'No prompt provided' });
 
-  const injectedPrompt = `You are a 3D prop extractor. 
-Extract individual accessories/items from the following user request.
-Output ONLY a JSON array of strings, where each string is a highly descriptive prompt for a 3D prop.
+  const injectedPrompt = `You are an AI generating prompts for a 3D asset generator.
+The user will provide an object idea. You must generate exactly 4 distinct visual variations/styles of THAT specific object. Do NOT break the request into sub-components.
+Output ONLY a JSON array of 4 strings, where each string is a highly descriptive prompt for the 3D prop requested.
 Keep them simple, blocky, pastel colored, isometric. The item should be floating on a white background, no ground or platform or rock object below it.
 User Request: ${prompt}`;
 
@@ -884,19 +884,33 @@ app.get('/api/proxy-image', async (req, res) => {
   const imageUrl = req.query.url;
   if (!imageUrl) return res.status(400).send('Missing url');
 
-  try {
-    const response = await fetch(imageUrl);
-    if (!response.ok) throw new Error(`External fetch failed: ${response.status}`);
+  const MAX_RETRIES = 3;
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) {
+          throw new Error(`External fetch failed: ${response.status}`);
+        } else {
+          // If it's a 404 or something else, don't retry
+          throw new Error(`External fetch failed fatally: ${response.status}`);
+        }
+      }
 
-    const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
+      const buffer = await response.arrayBuffer();
+      const contentType = response.headers.get('content-type') || 'image/jpeg';
 
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=3600');
-    res.send(Buffer.from(buffer));
-  } catch (e) {
-    console.error("Proxy error:", e);
-    res.status(500).send('Image proxy failed');
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', 'public, max-age=3600');
+      return res.send(Buffer.from(buffer));
+    } catch (e) {
+      if (i === MAX_RETRIES - 1 || e.message.includes("fatally")) {
+        console.error("Proxy error after retries:", e.message);
+        return res.status(500).send('Image proxy failed');
+      }
+      // Wait before retrying
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
   }
 });
 
@@ -1018,16 +1032,31 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
 
       // If this was generated from a Pollinations URL (AI generator), download and save the 2D image too
       if (originalPath && (originalPath.includes('/api/proxy-image?url=') || originalPath.includes('pollinations.ai'))) {
-        try {
-          const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
-          const imgRes = await fetch(trueUrl);
-          const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-          const pngFileName = fileName.replace('.glb', '.png');
-          const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
-          fs.writeFileSync(pngSavePath, imgBuffer);
-          console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
-        } catch (imgErr) {
-          console.error("[MESHY] Failed to download source PNG:", imgErr);
+        let imgRes = null;
+        const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
+        
+        for (let i = 0; i < 3; i++) {
+          try {
+            imgRes = await fetch(trueUrl);
+            if (imgRes.ok) break;
+            await new Promise(r => setTimeout(r, 1000));
+          } catch (e) {
+            await new Promise(r => setTimeout(r, 1000));
+          }
+        }
+
+        if (imgRes && imgRes.ok) {
+          try {
+            const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+            const pngFileName = fileName.replace('.glb', '.png');
+            const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
+            fs.writeFileSync(pngSavePath, imgBuffer);
+            console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
+          } catch (imgErr) {
+            console.error("[MESHY] Failed to save source PNG:", imgErr);
+          }
+        } else {
+          console.error("[MESHY] Failed to download source PNG after retries.");
         }
       }
 

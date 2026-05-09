@@ -12,6 +12,7 @@ export function AccessoryPlacementScene({
   offset,
   rotation = [0, 0, 0],
   scale = 0.25,
+  type = 'accessory',
   boneName,
   onOffsetChange,
   onRotationChange,
@@ -26,6 +27,7 @@ export function AccessoryPlacementScene({
   offset: [number, number, number];
   rotation?: [number, number, number];
   scale: number;
+  type?: 'accessory' | 'decor' | 'both';
   boneName: string;
   onOffsetChange: (offset: [number, number, number]) => void;
   onRotationChange: (rotation: [number, number, number]) => void;
@@ -38,7 +40,7 @@ export function AccessoryPlacementScene({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const [orbitEnabled, setOrbitEnabled] = useState(true);
-  
+
   // Base Lobster
   const { scene: lobsterScene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb");
   const clonedLobster = useMemo(() => SkeletonUtils.clone(lobsterScene), [lobsterScene]);
@@ -69,10 +71,10 @@ export function AccessoryPlacementScene({
       if (b === 'handr') b = 'righthand';
       const normalizedNodeName = node.name.toLowerCase().replace(/[._-]/g, '');
       if (node.isBone && normalizedNodeName.includes(b)) {
-         found = node;
+        found = node;
       }
     });
-    return found || clonedLobster; 
+    return found || clonedLobster;
   }, [clonedLobster, boneName]);
 
   return (
@@ -81,30 +83,31 @@ export function AccessoryPlacementScene({
       <Environment preset="city" />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 5, 5]} intensity={1} />
-      
+
       <group ref={groupRef} position={[0, -1, 0]}>
         {!isAnchorMode && accessoryGlbPath && (
-           <AdminGLBAgent
-             animated={animated}
-             modelScale={0.5}
-             modelPosition={[0, -0.23, 0]}
-             transformRef={setTarget}
-             transformAccessoryPath={accessoryGlbPath.replace('.glb', '.png')}
-             accessories={[accessoryGlbPath.replace('.glb', '.png')]}
-             accessoryData={{
-               items: {
-                 [accessoryGlbPath.replace('.glb', '.png')]: {
-                   bone: boneName,
-                   offset,
-                   rotation,
-                   scale
-                 }
-               },
-               boneDefaults
-             }}
-           />
+          <AdminGLBAgent
+            animated={animated}
+            modelScale={0.5}
+            modelPosition={[0, -0.23, 0]}
+            transformRef={setTarget}
+            transformAccessoryPath={accessoryGlbPath.replace('.glb', '.png')}
+            accessories={[accessoryGlbPath.replace('.glb', '.png')]}
+            accessoryData={{
+              items: {
+                [accessoryGlbPath.replace('.glb', '.png')]: {
+                  bone: boneName,
+                  offset,
+                  rotation,
+                  scale,
+                  type
+                }
+              },
+              boneDefaults
+            }}
+          />
         )}
-        
+
         {isAnchorMode && (
           <>
             <primitive object={clonedLobster} />
@@ -126,7 +129,7 @@ export function AccessoryPlacementScene({
         )}
 
         {isEditingAccessory && target && (
-          <TransformControls 
+          <TransformControls
             object={target}
             mode={transformMode}
             space="local"
@@ -163,12 +166,12 @@ function AnchorMarker({ parent, offset, rotation, scale, mode, isEditingAccessor
   onDraggingChanged: (isDragging: boolean) => void
 }) {
   const [target, setTarget] = useState<THREE.Group | null>(null);
-  
+
   const stateRef = useRef({ target, onOffsetChange, onRotationChange, onScaleChange });
   useEffect(() => {
     stateRef.current = { target, onOffsetChange, onRotationChange, onScaleChange };
   }, [target, onOffsetChange, onRotationChange, onScaleChange]);
-  
+
   useEffect(() => {
     if (target) {
       target.position.set(...offset);
@@ -176,11 +179,11 @@ function AnchorMarker({ parent, offset, rotation, scale, mode, isEditingAccessor
       target.scale.set(scale, scale, scale);
     }
   }, [offset, rotation, scale, target]);
-  
+
   return (
     <>
       {isEditingAccessory && target && (
-        <TransformControls 
+        <TransformControls
           object={target}
           mode={mode}
           space="local"
@@ -210,7 +213,7 @@ function AnchorMarker({ parent, offset, rotation, scale, mode, isEditingAccessor
         />
       )}
       {createPortal(
-        <group scale={parent.name === 'Hand_L' ? [-1, 1, 1] : [1, 1, 1]}>
+        <group >
           <group position={offset as any} rotation={rotation as any} scale={[scale, scale, scale]} ref={setTarget}>
             <axesHelper args={[2]} />
           </group>

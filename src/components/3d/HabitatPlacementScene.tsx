@@ -20,9 +20,10 @@ export function HabitatPlacementScene({
   onPlacementChange: (p: { x: number, y: number, z: number, rotationY: number }) => void;
   onDecorPointsChange: (pts: { x: number, y: number, z: number }[]) => void;
 }) {
+  const [isDragging, setIsDragging] = useState(false);
   return (
     <>
-      <OrbitControls makeDefault enabled={placementMode === 'lobster'} />
+      <OrbitControls makeDefault enabled={placementMode === 'lobster' && !isDragging} />
       <Environment preset="city" />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
@@ -41,7 +42,7 @@ export function HabitatPlacementScene({
       
       {/* Draggable Lobster */}
       {placementMode === 'lobster' && (
-        <DraggableLobster placement={placement} onPlacementChange={onPlacementChange} />
+        <DraggableLobster placement={placement} onPlacementChange={onPlacementChange} onDraggingChange={setIsDragging} />
       )}
     </>
   );
@@ -150,9 +151,10 @@ function DefaultPedestal() {
   );
 }
 
-function DraggableLobster({ placement, onPlacementChange }: { 
+function DraggableLobster({ placement, onPlacementChange, onDraggingChange }: { 
   placement: { x: number, y: number, z: number, rotationY: number }, 
-  onPlacementChange: (p: { x: number, y: number, z: number, rotationY: number }) => void 
+  onPlacementChange: (p: { x: number, y: number, z: number, rotationY: number }) => void,
+  onDraggingChange?: (dragging: boolean) => void
 }) {
   const { scene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb");
   const clonedScene = useMemo(() => SkeletonUtils.clone(scene), [scene]);
@@ -172,10 +174,14 @@ function DraggableLobster({ placement, onPlacementChange }: {
   return (
     <TransformControls 
       mode="translate"
-      onMouseUp={() => {
+      onDraggingChanged={(e) => onDraggingChange?.(e.value)}
+      onChange={() => {
         if (groupRef.current) {
           const pos = groupRef.current.position;
-          onPlacementChange({ ...placement, x: pos.x, y: pos.y, z: pos.z });
+          // Only update if it actually moved to avoid unnecessary renders
+          if (Math.abs(pos.x - placement.x) > 0.001 || Math.abs(pos.y - placement.y) > 0.001 || Math.abs(pos.z - placement.z) > 0.001) {
+             onPlacementChange({ ...placement, x: pos.x, y: pos.y, z: pos.z });
+          }
         }
       }}
     >

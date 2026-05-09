@@ -46,7 +46,7 @@ class ModelErrorBoundary extends Component<{children: ReactNode}, {hasError: boo
 }
 
 function HabitatPreview({ habitatId, habitats }: { habitatId?: string | null, habitats: any[] }) {
-  const habitat = habitats.find(h => h.id === habitatId);
+  const habitat = habitats.find(h => h.id?.toString() === habitatId?.toString());
   if (!habitat || !habitat.path) return null;
   const { scene } = useGLTF(habitat.path.startsWith('http') ? habitat.path : `http://localhost:3001${habitat.path.startsWith('/') ? '' : '/'}${habitat.path}`);
   
@@ -99,7 +99,9 @@ export default function AgentManager() {
   const [globalAccessories, setGlobalAccessories] = useState<any>({ items: {} });
   const [accessorySearch, setAccessorySearch] = useState("");
   const [selectedDecor, setSelectedDecor] = useState<string | null>(null);
+  const [isDraggingDecor, setIsDraggingDecor] = useState(false);
   const [showSuggested, setShowSuggested] = useState(false);
+  const [decorTransformMode, setDecorTransformMode] = useState<'translate'|'rotate'|'scale'>('translate');
 
   useEffect(() => {
     fetch('/api/agents')
@@ -218,7 +220,8 @@ export default function AgentManager() {
       popularity: editingAgent.popularity,
       accessories: editingAgent.accessories,
       soul_template: editingAgent.soul_template,
-      identity_template: editingAgent.identity_template
+      identity_template: editingAgent.identity_template,
+      visual_identity: editingAgent.visual_identity
     };
     
     try {
@@ -334,14 +337,31 @@ export default function AgentManager() {
               
               {/* LEFT PANE - THE 3D CANVAS */}
               <div className="flex-1 bg-backgroundAlt relative overflow-hidden flex flex-col border-r border-border shadow-xl z-20">
-                 <div className="absolute top-4 left-4 z-10 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl border border-border shadow-sm">
-                   <p className="font-bold text-textMain text-sm">3D Template Sandbox</p>
+                 <div className="absolute top-4 left-4 z-10 flex flex-col gap-3">
+                   <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-xl border border-border shadow-sm">
+                     <p className="font-bold text-textMain text-sm">3D Template Sandbox</p>
+                   </div>
+                   {selectedDecor && (
+                     <div className="flex gap-1.5 bg-white/40 backdrop-blur-md p-1.5 rounded-2xl border border-white/50 shadow-lg">
+                       {(["translate", "rotate", "scale"] as const).map(m => (
+                         <button 
+                           key={m}
+                           onClick={() => setDecorTransformMode(m)}
+                           className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                             decorTransformMode === m ? "bg-primary text-white border-primary shadow-md" : "bg-white/80 text-textMuted border-white hover:bg-white"
+                           }`}
+                         >
+                           {m}
+                         </button>
+                       ))}
+                     </div>
+                   )}
                  </div>
                  
                  <div className="flex-1" style={{ backgroundColor: editingAgent?.color || '#F5E6D8' }}>
                    <ModelErrorBoundary>
                      <Canvas camera={{ position: [2.5, 2, 2.5], fov: 40 }} shadows gl={{ shadowMapType: 1 }}>
-                        <OrbitControls makeDefault />
+                        <OrbitControls makeDefault enabled={!isDraggingDecor} />
                         <Suspense fallback={null}>
                           <ambientLight intensity={1.5} />
                           <directionalLight position={[5, 8, 5]} intensity={2.5} castShadow />
@@ -351,22 +371,27 @@ export default function AgentManager() {
                           
                           {/* Agent with fully attached 3D accessories */}
                           {(() => {
-                            const habitat = globalHabitats.find(h => h.id === editingAgent?.habitatId);
+                            const habitat = globalHabitats.find(h => h.id?.toString() === editingAgent?.habitatId?.toString());
                             const placement = habitat?.placement;
                             const pos: [number, number, number] = placement ? [placement.x, placement.y, placement.z] : [0, -0.23, 0];
                             const rotY = placement?.rotationY || 0;
                             
                             return (
                               <AdminGLBAgent 
+                                animated={false}
                                 robeColor={editingAgent?.robeColor || '#888888'} 
                                 accessories={editingAgent?.accessories || []}
                                 accessoryData={globalAccessories}
+                                onSelectAccessory={(path) => window.open(`/accessories?edit=${encodeURIComponent(path)}`, '_blank')}
                                 modelPosition={pos}
                                 modelRotationY={rotY}
                                 decorPoints={habitat?.decorPoints || []}
                                 decorTransforms={editingAgent?.visual_identity?.decorTransforms || {}}
                                 selectedDecorPath={selectedDecor}
+                                transformMode={decorTransformMode}
                                 onSelectDecor={setSelectedDecor}
+                                onDraggingDecor={setIsDraggingDecor}
+                                accessoryBehaviors={editingAgent?.visual_identity?.accessoryBehaviors || {}}
                                 onDecorTransformChange={(path, transform) => {
                                   setEditingAgent({
                                     ...editingAgent,
@@ -549,24 +574,63 @@ export default function AgentManager() {
                            </span>
                          </div>
                          {(editingAgent?.accessories || []).length > 0 ? (
-                           <div className="flex flex-wrap gap-2">
+                           <div className="flex flex-col gap-2">
                              {(editingAgent?.accessories || []).map((path: string) => {
                                const item = globalAccessories.items?.[path] || {};
+                               const behaviors = editingAgent?.visual_identity?.accessoryBehaviors || {};
+                               const currentBehavior = behaviors[path] || item.type || 'accessory';
+                               
                                return (
-                                 <button 
-                                   key={path}
-                                   title={item.name || path}
-                                   onClick={() => {
-                                      const current = editingAgent?.accessories || [];
-                                      setEditingAgent({ ...editingAgent, accessories: current.filter((p: string) => p !== path) });
-                                   }}
-                                   className="w-16 h-16 rounded-lg border-2 border-primary bg-primary/5 shadow-sm hover:border-red-400 hover:bg-red-50 overflow-hidden transition-all duration-200 relative group flex-shrink-0"
-                                 >
-                                    <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
-                                    <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <X className="text-red-500 stroke-[3px]" size={20} />
+                                 <div key={path} className="flex items-center gap-3 p-2 bg-background border border-border rounded-xl">
+                                    <div className="w-12 h-12 bg-white rounded-lg flex-shrink-0 flex items-center justify-center p-1 border border-border/50">
+                                      <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain" />
                                     </div>
-                                 </button>
+                                    <div className="flex-1">
+                                      <p className="text-sm font-bold text-textMain leading-tight">{item.name || path.split('/').pop()}</p>
+                                      <p className="text-[10px] text-textMuted uppercase tracking-wider mt-0.5 font-bold">
+                                        {item.type === 'both' ? 'Hybrid Item' : (item.type === 'decor' ? 'Habitat Decor' : 'Wearable')}
+                                      </p>
+                                    </div>
+                                    
+                                    {item.type === 'both' && (
+                                      <div className="flex items-center bg-backgroundAlt rounded-lg p-1 mr-2 border border-border/50">
+                                        <button 
+                                          onClick={() => {
+                                            const newBehaviors = { ...behaviors, [path]: 'accessory' };
+                                            setEditingAgent({
+                                              ...editingAgent,
+                                              visual_identity: { ...editingAgent?.visual_identity, accessoryBehaviors: newBehaviors }
+                                            });
+                                          }}
+                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${currentBehavior !== 'decor' ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:bg-black/5'}`}
+                                        >
+                                          Wear
+                                        </button>
+                                        <button 
+                                          onClick={() => {
+                                            const newBehaviors = { ...behaviors, [path]: 'decor' };
+                                            setEditingAgent({
+                                              ...editingAgent,
+                                              visual_identity: { ...editingAgent?.visual_identity, accessoryBehaviors: newBehaviors }
+                                            });
+                                          }}
+                                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition-colors ${currentBehavior === 'decor' ? 'bg-primary text-white shadow-sm' : 'text-textMuted hover:bg-black/5'}`}
+                                        >
+                                          Place
+                                        </button>
+                                      </div>
+                                    )}
+                                    
+                                    <button 
+                                      onClick={() => {
+                                        const current = editingAgent?.accessories || [];
+                                        setEditingAgent({ ...editingAgent, accessories: current.filter((p: string) => p !== path) });
+                                      }}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 hover:text-red-500 text-textMuted transition-colors flex-shrink-0"
+                                    >
+                                      <X size={16} strokeWidth={3} />
+                                    </button>
+                                 </div>
                                );
                              })}
                            </div>
