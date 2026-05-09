@@ -29,6 +29,9 @@ interface AccessoriesData {
   items: Record<string, {
     isVisible: boolean,
     offset?: [number, number, number],
+    rotation?: [number, number, number],
+    decorRotation?: [number, number, number],
+    scale?: number,
     bone?: string,
     name?: string,
     description?: string,
@@ -135,7 +138,7 @@ export default function AccessoryManager() {
 
     const matchesPersona = personaFilter === "All" || (data.defaults[personaFilter]?.includes(path));
 
-    const matchesType = typeFilter === "All" || 
+    const matchesType = typeFilter === "All" ||
       (typeFilter === "wearable" && (item.type === "accessory" || item.type === "both" || !item.type)) ||
       (typeFilter === "decor" && (item.type === "decor" || item.type === "both")) ||
       (typeFilter === "both" && item.type === "both");
@@ -559,7 +562,7 @@ export default function AccessoryManager() {
                             const updateRot = (deltaDeg: number) => {
                               if (!data) return;
                               const currentRot = data.items[editingPath]?.rotation || [0, 0, 0];
-                              const newRot = [...currentRot];
+                              const newRot = [...currentRot] as [number, number, number];
                               newRot[axis.index] = currentRot[axis.index] + (deltaDeg * Math.PI) / 180;
                               setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], rotation: newRot } } });
                             };
@@ -576,7 +579,7 @@ export default function AccessoryManager() {
                                         const val = parseFloat(e.target.value);
                                         if (isNaN(val)) return;
                                         const currentRot = data.items[editingPath]?.rotation || [0, 0, 0];
-                                        const newRot = [...currentRot];
+                                        const newRot = [...currentRot] as [number, number, number];
                                         newRot[axis.index] = (val * Math.PI) / 180;
                                         setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], rotation: newRot } } });
                                       }}
@@ -610,7 +613,7 @@ export default function AccessoryManager() {
                             const updateRot = (deltaDeg: number) => {
                               if (!data) return;
                               const currentRot = data.items[editingPath]?.decorRotation || [0, 0, 0];
-                              const newRot = [...currentRot];
+                              const newRot = [...currentRot] as [number, number, number];
                               newRot[axis.index] = currentRot[axis.index] + (deltaDeg * Math.PI) / 180;
                               setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], decorRotation: newRot } } });
                             };
@@ -627,7 +630,7 @@ export default function AccessoryManager() {
                                         const val = parseFloat(e.target.value);
                                         if (isNaN(val)) return;
                                         const currentRot = data.items[editingPath]?.decorRotation || [0, 0, 0];
-                                        const newRot = [...currentRot];
+                                        const newRot = [...currentRot] as [number, number, number];
                                         newRot[axis.index] = (val * Math.PI) / 180;
                                         setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], decorRotation: newRot } } });
                                       }}
@@ -654,8 +657,8 @@ export default function AccessoryManager() {
               {/* Right Pane: 3D Scene */}
               <div className="flex-1 bg-[#F8F6F4] relative">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.03)_1px,transparent_1px)] bg-[length:24px_24px]" />
-                <ErrorBoundary key={editingPath} fallback={<div className="absolute inset-0 flex flex-col items-center justify-center p-10 text-center"><Sparkles size={32} className="text-primary mb-4 opacity-20" /><h4 className="text-textMain font-bold mb-2">3D Staging Offline</h4><p className="text-xs text-textMuted max-w-xs">The 3D preview encountered an error (likely a missing asset). You can still edit metadata, or try baking the accessory again.</p></div>}>
-                  <Canvas shadows camera={{ position: [2.5, 2, 2.5], fov: 40 }} gl={{ shadowMapType: 1 }}>
+                <ErrorBoundary fallback={<div className="absolute inset-0 flex flex-col items-center justify-center p-10 text-center"><Sparkles size={32} className="text-primary mb-4 opacity-20" /><h4 className="text-textMain font-bold mb-2">3D Staging Offline</h4><p className="text-xs text-textMuted max-w-xs">The 3D preview encountered an error (likely a missing asset). You can still edit metadata, or try baking the accessory again.</p></div>}>
+                  <Canvas shadows camera={{ position: [2.5, 2, 2.5], fov: 40 }} >
                     <Suspense fallback={null}>
                       <AccessoryPlacementScene
                         key={`${editingPath}-${version}`}
@@ -836,7 +839,7 @@ export default function AccessoryManager() {
               <div className="flex-1 bg-[#F8F6F4] relative">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.03)_1px,transparent_1px)] bg-[length:24px_24px]" />
                 <ErrorBoundary key={editingBone} fallback={<div className="absolute inset-0 flex flex-col items-center justify-center p-10 text-center"><Sparkles size={32} className="text-primary mb-4 opacity-20" /><h4 className="text-textMain font-bold mb-2">3D Staging Offline</h4></div>}>
-                  <Canvas shadows camera={{ position: [2.5, 2, 2.5], fov: 40 }} gl={{ shadowMapType: 1 }}>
+                  <Canvas shadows camera={{ position: [2.5, 2, 2.5], fov: 40 }}>
                     <Suspense fallback={null}>
                       <AccessoryPlacementScene
                         key={`anchor-${editingBone}`}

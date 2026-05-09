@@ -16,6 +16,7 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
         bypass: (req) => {
+          if (!req.url) return undefined;
           const url = req.url.split('?')[0].split('#')[0];
           const isHtml = req.headers.accept?.includes('text/html');
           const isFile = url.includes('.');

@@ -3,8 +3,8 @@ import { useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
 
-class SafeAccessoryBoundary extends Component<{children: ReactNode, name: string}, {hasError: boolean}> {
-  constructor(props: {children: ReactNode, name: string}) {
+class SafeAccessoryBoundary extends Component<{ children: ReactNode, name: string }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode, name: string }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -25,7 +25,7 @@ let globalAnimationStagger = 0;
 
 export function AdminGLBAgent({
   robeColor,
-  forceAnimation = "Long_Breathe_and_Look_Around",
+  forceAnimation = "Breathe",
   accessories = [],
   accessoryData = null,
   animated = true,
@@ -55,9 +55,11 @@ export function AdminGLBAgent({
   modelPosition?: [number, number, number],
   modelRotationY?: number,
   decorTransforms?: Record<string, any>,
-  decorPoints?: {x: number, y: number, z: number}[],
+  decorPoints?: { x: number, y: number, z: number }[],
   selectedDecorPath?: string | null,
   transformMode?: 'translate' | 'rotate' | 'scale',
+  onSelectDecor?: (path: string) => void,
+  onDecorTransformChange?: (path: string, transform: any) => void,
   onSelectAccessory?: (path: string) => void,
   accessoryBehaviors?: Record<string, 'wearable' | 'decor'>,
   onDraggingDecor?: (dragging: boolean) => void
@@ -65,7 +67,7 @@ export function AdminGLBAgent({
   const groupRef = useRef<THREE.Group>(null);
 
   // Load the universal rigged body.
-  const { scene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb");
+  const { scene, animations } = useGLTF("/models/lobsters/BaseLobsterRigged.glb?v=2");
 
   // Clone efficiently so each preview gets its own distinct colored materials
   const clonedScene = useMemo(() => {
@@ -115,7 +117,7 @@ export function AdminGLBAgent({
   useEffect(() => {
     if (names.length === 0) return;
 
-    const idleAnim = names.find(n => n === "Long_Breathe_and_Look_Around") || names[0];
+    const idleAnim = names.find(n => n === "Breathe") || names[0];
     let activeActionName = idleAnim;
 
     if (forceAnimation && names.includes(forceAnimation)) {
@@ -130,22 +132,35 @@ export function AdminGLBAgent({
       activeActionName = names[0];
     }
 
+    console.log(`[AdminGLBAgent] Animation Effect triggered. forceAnimation: ${forceAnimation} test, activeActionName: ${activeActionName}, available: ${names.join(", ")}`);
+
     const action = actions[activeActionName];
+
+    // Explicitly stop all other actions to prevent cross-contamination or stuck weights
+    Object.values(actions).forEach((a) => {
+      if (a && a !== action) {
+        a.stop();
+        a.setEffectiveWeight(0);
+      }
+    });
+
+    console.log(`[AdminGLBAgent] Playing clip: ${action ? action.getClip().name : 'none'} for action: ${activeActionName}`);
 
     if (action) {
       if (animated) {
         globalAnimationStagger += 0.1;
-        action.reset().fadeIn(0.5).play();
+        // Don't use fadeIn/fadeOut here as rapid React re-renders can cause weight interpolation bugs
+        action.reset().setEffectiveWeight(1).play();
         action.time = globalAnimationStagger % action.getClip().duration;
       } else {
         action.stop();
       }
     }
 
-    return () => { if (action) action.fadeOut(0.5); };
-  }, [actions, names, forceAnimation]);
+    return () => { if (action) action.stop(); };
+  }, [actions, names, forceAnimation, animated]);
 
-    return (
+  return (
     <>
       <group ref={groupRef} position={modelPosition} rotation={[0, modelRotationY, 0]} scale={modelScale} dispose={null}>
         <primitive object={clonedScene} />
@@ -153,16 +168,16 @@ export function AdminGLBAgent({
           const itemData = accessoryData?.items?.[acc];
           const behavior = accessoryBehaviors?.[acc] || itemData?.type || 'accessory';
           if (behavior === 'decor') return null; // Don't attach strict decor to the agent body!
-          
+
           console.log(`[AdminGLBAgent] Rendering accessory: ${acc}`, { scale: itemData?.scale, offset: itemData?.offset });
           const isEdited = acc === transformAccessoryPath;
           return (
             <SafeAccessoryBoundary key={`${acc}-${i}`} name={acc}>
               <group onClick={(e) => { e.stopPropagation(); if (onSelectAccessory) onSelectAccessory(acc); }} onPointerOver={() => { document.body.style.cursor = onSelectAccessory ? 'pointer' : 'auto'; }} onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
-                <AttachedAccessory 
-                  path={acc} 
-                  accessoryData={accessoryData} 
-                  clonedSceneRoot={clonedScene} 
+                <AttachedAccessory
+                  path={acc}
+                  accessoryData={accessoryData}
+                  clonedSceneRoot={clonedScene}
                   transformRef={isEdited ? transformRef : undefined}
                 />
               </group>
@@ -170,17 +185,17 @@ export function AdminGLBAgent({
           );
         })}
       </group>
-      
+
       {/* Render Decor Items in World Space */}
       <group>
         {accessories.map((acc, i) => {
           const itemData = accessoryData?.items?.[acc];
           const behavior = accessoryBehaviors?.[acc] || itemData?.type || 'accessory';
           if (behavior !== 'decor') return null;
-          
+
           const glbPath = acc.startsWith('http') ? acc.replace('.png', '.glb') : `http://localhost:3001${acc.startsWith('/') ? '' : '/'}${acc.replace('.png', '.glb')}`;
           const transform = decorTransforms[acc];
-          
+
           // 1. Saved transform (prioritized)
           // 2. Procedural valid decor point (seeded)
           // 3. Fallback random float
@@ -196,24 +211,24 @@ export function AdminGLBAgent({
             by = 0;
             bz = (Math.cos(seed * 1.3) * 3);
           }
-          
+
           const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.decorRotation || itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
           // Decor is placed in world space (or scaled lobster space), whereas accessories are placed on bones
           // The standard rig bones have a scale of ~0.01, so an accessory scale of 75 looks like 0.75. 
           // We multiply the decor scale by 0.01 here so they are consistent sizes.
           const baseScale = transform?.scale || itemData?.scale || 75;
           // Apply modelScale visually so decor matches the lobster preview size
-          const scale = baseScale * 0.01 * (modelScale / 0.5); 
+          const scale = baseScale * 0.01 * modelScale;
           const isEdited = acc === transformAccessoryPath;
           const isSelectedDecor = acc === selectedDecorPath;
-          
+
           return (
             <SafeAccessoryBoundary key={`decor-${acc}-${i}`} name={glbPath}>
-              <AdminDecorModel 
-                url={glbPath} 
+              <AdminDecorModel
+                url={glbPath}
                 path={acc}
-                position={[bx, by, bz]} 
-                rotation={rotation as any} 
+                position={[bx, by, bz]}
+                rotation={rotation as any}
                 scale={scale}
                 transformMode={transformMode}
                 transformRef={isEdited ? transformRef : undefined}
@@ -231,7 +246,7 @@ export function AdminGLBAgent({
   );
 }
 
-function AdminDecorModel({ url, path, position, rotation, scale, transformRef, transformMode = 'translate', isSelected, onSelect, onTransformChange, onDraggingChanged, modelScale = 0.5 }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, transformMode?: 'translate'|'rotate'|'scale', isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void, onDraggingChanged?: (b: boolean) => void, modelScale?: number }) {
+function AdminDecorModel({ url, path, position, rotation, scale, transformRef, transformMode = 'translate', isSelected, onSelect, onTransformChange, onDraggingChanged, modelScale = 0.5 }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, transformMode?: 'translate' | 'rotate' | 'scale', isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void, onDraggingChanged?: (b: boolean) => void, modelScale?: number }) {
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);
@@ -256,13 +271,13 @@ function AdminDecorModel({ url, path, position, rotation, scale, transformRef, t
     return clone;
   }, [scene]);
   const localRef = useRef<THREE.Group>(null);
-  
+
   return (
     <>
-      <group 
-        position={position} 
-        rotation={rotation} 
-        scale={scale} 
+      <group
+        position={position}
+        rotation={rotation}
+        scale={scale}
         ref={(node) => {
           localRef.current = node as THREE.Group;
           if (transformRef) {

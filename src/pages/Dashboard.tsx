@@ -4,16 +4,16 @@ import { motion } from 'framer-motion';
 import { Users, Zap, BrainCircuit, Activity } from 'lucide-react';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<any>({ 
-    tokenUsageData: [], 
+  const [stats, setStats] = useState<any>({
+    tokenUsageData: [],
     personaAdoptionData: { usage: [], downloads: [] },
     activeAgentsDaily: 0
   });
   const [agents, setAgents] = useState<any>({});
   const [popularityMetric, setPopularityMetric] = useState<'usage' | 'downloads'>('usage');
-  
+
   const [error, setError] = useState<string | null>(null);
-  
+
   useEffect(() => {
     Promise.all([
       fetch('/api/stats').then(r => {
@@ -31,34 +31,31 @@ export default function Dashboard() {
     });
   }, []);
 
-  const totalAgentsCount = Object.keys(agents).length;
-  const onboardingAgentsCount = Object.values(agents).filter((a: any) => a.suggest_in_onboarding !== false).length;
-  
   const tokenUsageData = stats.tokenUsageData || [];
   const personaAdoptionData = stats.personaAdoptionData?.[popularityMetric] || [];
 
   // Calculate real metrics from stats
   const activeAgentsCount = stats.activeAgentsDaily || 0;
-  
+
   // Calculate average daily tokens
   const latestUsage = tokenUsageData[tokenUsageData.length - 1] || {};
-  const totalTokensLatest = 
-    (latestUsage.google || 0) + 
-    (latestUsage.openai || 0) + 
-    (latestUsage.anthropic || 0) + 
-    (latestUsage.xai || 0) + 
+  const totalTokensLatest =
+    (latestUsage.google || 0) +
+    (latestUsage.openai || 0) +
+    (latestUsage.anthropic || 0) +
+    (latestUsage.xai || 0) +
     (latestUsage.other || 0);
-  
+
   const formatTokens = (val: number) => {
     if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
     if (val >= 1000) return (val / 1000).toFixed(1) + 'k';
     return val.toString();
   };
-  
+
   const avgTokens = formatTokens(totalTokensLatest);
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-10"
@@ -112,22 +109,22 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={tokenUsageData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="colorGoogle" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4285F4" stopOpacity={0.3}/><stop offset="95%" stopColor="#4285F4" stopOpacity={0}/></linearGradient>
-                  <linearGradient id="colorOpenAI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10a37f" stopOpacity={0.3}/><stop offset="95%" stopColor="#10a37f" stopOpacity={0}/></linearGradient>
-                  <linearGradient id="colorAnthropic" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#D97757" stopOpacity={0.3}/><stop offset="95%" stopColor="#D97757" stopOpacity={0}/></linearGradient>
-                  <linearGradient id="colorXAI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#000000" stopOpacity={0.3}/><stop offset="95%" stopColor="#000000" stopOpacity={0}/></linearGradient>
-                  <linearGradient id="colorOther" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#94A3B8" stopOpacity={0.3}/><stop offset="95%" stopColor="#94A3B8" stopOpacity={0}/></linearGradient>
+                  <linearGradient id="colorGoogle" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4285F4" stopOpacity={0.3} /><stop offset="95%" stopColor="#4285F4" stopOpacity={0} /></linearGradient>
+                  <linearGradient id="colorOpenAI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10a37f" stopOpacity={0.3} /><stop offset="95%" stopColor="#10a37f" stopOpacity={0} /></linearGradient>
+                  <linearGradient id="colorAnthropic" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#D97757" stopOpacity={0.3} /><stop offset="95%" stopColor="#D97757" stopOpacity={0} /></linearGradient>
+                  <linearGradient id="colorXAI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#000000" stopOpacity={0.3} /><stop offset="95%" stopColor="#000000" stopOpacity={0} /></linearGradient>
+                  <linearGradient id="colorOther" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#94A3B8" stopOpacity={0.3} /><stop offset="95%" stopColor="#94A3B8" stopOpacity={0} /></linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(33,131,128,0.1)" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 500 }} dy={10} />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 500 }} 
-                  tickFormatter={(val) => val >= 1000 ? `${val/1000}k` : val}
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 500 }}
+                  tickFormatter={(val) => val >= 1000 ? `${val / 1000}k` : val}
                   dx={-10}
                 />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
                   itemStyle={{ fontWeight: 'bold' }}
                   labelStyle={{ color: '#2D3436', marginBottom: '4px', fontWeight: 'bold' }}
@@ -147,13 +144,13 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-8">
             <h3 className="text-xl font-bold text-textMain">Persona Popularity</h3>
             <div className="flex bg-backgroundAlt p-1 rounded-xl border border-border">
-              <button 
+              <button
                 onClick={() => setPopularityMetric('usage')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${popularityMetric === 'usage' ? 'bg-white shadow-sm text-primary' : 'text-textMuted hover:text-textMain'}`}
               >
                 Usage
               </button>
-              <button 
+              <button
                 onClick={() => setPopularityMetric('downloads')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${popularityMetric === 'downloads' ? 'bg-white shadow-sm text-primary' : 'text-textMuted hover:text-textMain'}`}
               >
@@ -167,7 +164,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="rgba(33,131,128,0.1)" />
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 600 }} width={100} />
-                <Tooltip 
+                <Tooltip
                   cursor={{ fill: 'rgba(33,131,128,0.05)' }}
                   contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
                 />

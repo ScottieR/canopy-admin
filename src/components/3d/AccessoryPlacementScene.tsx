@@ -142,7 +142,6 @@ export function AccessoryPlacementScene({
               const s = target.scale.x;
               onOffsetChange([pos.x, pos.y, pos.z]);
               onRotationChange([rot.x, rot.y, rot.z]);
-              onScaleChange(s);
             }}
             onDraggingChanged={(e) => {
               const isDragging = !!e?.value;
