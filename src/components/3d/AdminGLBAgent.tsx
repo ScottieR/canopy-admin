@@ -197,7 +197,7 @@ export function AdminGLBAgent({
             bz = (Math.cos(seed * 1.3) * 3);
           }
           
-          const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
+          const rotation = transform ? [transform.rotationX || 0, transform.rotationY || 0, transform.rotationZ || 0] : (itemData?.decorRotation || itemData?.rotation || [0, Math.sin(acc.length + i) * Math.PI, 0]);
           // Decor is placed in world space (or scaled lobster space), whereas accessories are placed on bones
           // The standard rig bones have a scale of ~0.01, so an accessory scale of 75 looks like 0.75. 
           // We multiply the decor scale by 0.01 here so they are consistent sizes.
@@ -214,10 +214,11 @@ export function AdminGLBAgent({
                 path={acc}
                 position={[bx, by, bz]} 
                 rotation={rotation as any} 
-                scale={scale} 
+                scale={scale}
                 transformMode={transformMode}
                 transformRef={isEdited ? transformRef : undefined}
                 isSelected={isSelectedDecor}
+                modelScale={modelScale}
                 onSelect={() => onSelectDecor && onSelectDecor(acc)}
                 onTransformChange={(t) => onDecorTransformChange && onDecorTransformChange(acc, t)}
                 onDraggingChanged={onDraggingDecor}
@@ -230,7 +231,7 @@ export function AdminGLBAgent({
   );
 }
 
-function AdminDecorModel({ url, path, position, rotation, scale, transformRef, transformMode = 'translate', isSelected, onSelect, onTransformChange, onDraggingChanged }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, transformMode?: 'translate'|'rotate'|'scale', isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void, onDraggingChanged?: (b: boolean) => void }) {
+function AdminDecorModel({ url, path, position, rotation, scale, transformRef, transformMode = 'translate', isSelected, onSelect, onTransformChange, onDraggingChanged, modelScale = 0.5 }: { url: string, path: string, position: [number, number, number], rotation: [number, number, number], scale: number, transformRef?: React.Ref<THREE.Group>, transformMode?: 'translate'|'rotate'|'scale', isSelected?: boolean, onSelect?: () => void, onTransformChange?: (t: any) => void, onDraggingChanged?: (b: boolean) => void, modelScale?: number }) {
   const { scene } = useGLTF(url);
   const cloned = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);
@@ -291,7 +292,7 @@ function AdminDecorModel({ url, path, position, rotation, scale, transformRef, t
                   rotationX: localRef.current.rotation.x,
                   rotationY: localRef.current.rotation.y,
                   rotationZ: localRef.current.rotation.z,
-                  scale: localRef.current.scale.x * 100
+                  scale: (localRef.current.scale.x * 100) / (modelScale / 0.5)
                 });
               }
             }

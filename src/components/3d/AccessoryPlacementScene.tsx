@@ -11,6 +11,7 @@ export function AccessoryPlacementScene({
   accessoryGlbPath,
   offset,
   rotation = [0, 0, 0],
+  decorRotation = [0, 0, 0],
   scale = 0.25,
   type = 'accessory',
   boneName,
@@ -26,6 +27,7 @@ export function AccessoryPlacementScene({
   accessoryGlbPath: string | null;
   offset: [number, number, number];
   rotation?: [number, number, number];
+  decorRotation?: [number, number, number];
   scale: number;
   type?: 'accessory' | 'decor' | 'both';
   boneName: string;
@@ -99,6 +101,7 @@ export function AccessoryPlacementScene({
                   bone: boneName,
                   offset,
                   rotation,
+                  decorRotation,
                   scale,
                   type
                 }

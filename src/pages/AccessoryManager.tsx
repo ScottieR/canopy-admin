@@ -59,8 +59,10 @@ export default function AccessoryManager() {
   const [animated, setAnimated] = useState(false);
   const [isEditingAccessory, setIsEditingAccessory] = useState(true);
   const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
+  const [previewMode, setPreviewMode] = useState<"accessory" | "decor">("accessory");
   const [searchTerm, setSearchTerm] = useState("");
   const [personaFilter, setPersonaFilter] = useState<string>("All");
+  const [typeFilter, setTypeFilter] = useState<string>("All");
 
   useEffect(() => {
     Promise.all([
@@ -91,6 +93,7 @@ export default function AccessoryManager() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dataToSave)
       });
+      setVersion(v => v + 1);
       setTimeout(() => setSaving(false), 500);
     } catch (e) {
       console.error("Failed to save accessories config:", e);
@@ -132,7 +135,12 @@ export default function AccessoryManager() {
 
     const matchesPersona = personaFilter === "All" || (data.defaults[personaFilter]?.includes(path));
 
-    return matchesSearch && matchesPersona;
+    const matchesType = typeFilter === "All" || 
+      (typeFilter === "wearable" && (item.type === "accessory" || item.type === "both" || !item.type)) ||
+      (typeFilter === "decor" && (item.type === "decor" || item.type === "both")) ||
+      (typeFilter === "both" && item.type === "both");
+
+    return matchesSearch && matchesPersona && matchesType;
   });
 
   const agentsUsingSelected = editingPath ? agents.filter(a => a.accessories?.includes(editingPath)) : [];
@@ -234,6 +242,16 @@ export default function AccessoryManager() {
               <option value="All">All Personas</option>
               {ARCHETYPES.map(arch => <option key={arch} value={arch}>{arch} Defaults</option>)}
             </select>
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="bg-white border border-border rounded-xl px-4 py-2 text-xs font-bold text-textMain focus:outline-none focus:border-primary shadow-sm"
+            >
+              <option value="All">All Types</option>
+              <option value="wearable">Wearables</option>
+              <option value="decor">Decor</option>
+              <option value="both">Both</option>
+            </select>
           </div>
         )}
       </div>
@@ -242,7 +260,8 @@ export default function AccessoryManager() {
         <div className="bg-surface/50 border border-outline-variant/30 rounded-3xl p-6 backdrop-blur-md shadow-sm min-h-[400px]">
           <div className="mb-6 flex justify-between items-center">
             <p className="text-sm font-medium text-textMuted">
-              {personaFilter !== "All" ? `Showing defaults for ${personaFilter}` : "Showing all visible accessories."}
+              {personaFilter !== "All" ? `Showing defaults for ${personaFilter}` : "Showing all visible accessories"}
+              {typeFilter !== "All" ? ` (${typeFilter}).` : "."}
             </p>
             <div className="text-sm font-bold text-textMain bg-white px-3 py-1 rounded-full shadow-sm">
               Visible: {filteredPaths.filter(p => data.items[p]?.isVisible !== false).length} / {filteredPaths.length}
@@ -575,7 +594,58 @@ export default function AccessoryManager() {
                     </div>
                   </div>
 
-                  <button onClick={() => { setEditingPath(null); handleSave(); }} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-2xl transition-all shadow-lg hover:shadow-primary/20">
+                  {(data.items[editingPath]?.type === 'decor' || data.items[editingPath]?.type === 'both') && (
+                    <div className="bg-white/50 rounded-2xl p-5 border border-border/50 mt-4">
+                      <label className="text-[10px] font-bold text-textMuted uppercase mb-4 block tracking-widest">Decor Mode Settings</label>
+                      <div>
+                        <label className="text-[10px] font-bold text-textMuted uppercase mb-2 block tracking-widest">Decor Rotation (Degrees)</label>
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Pitch (X)', index: 0 },
+                            { label: 'Yaw (Y)', index: 1 },
+                            { label: 'Roll (Z)', index: 2 }
+                          ].map((axis) => {
+                            const rad = data.items[editingPath]?.decorRotation?.[axis.index] || 0;
+                            const deg = (rad * 180) / Math.PI;
+                            const updateRot = (deltaDeg: number) => {
+                              if (!data) return;
+                              const currentRot = data.items[editingPath]?.decorRotation || [0, 0, 0];
+                              const newRot = [...currentRot];
+                              newRot[axis.index] = currentRot[axis.index] + (deltaDeg * Math.PI) / 180;
+                              setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], decorRotation: newRot } } });
+                            };
+                            return (
+                              <div key={axis.index} className="flex items-center justify-between gap-4">
+                                <span className="text-[10px] font-medium text-textMuted w-24">{axis.label}</span>
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => updateRot(-5)} className="p-1.5 bg-white border border-border rounded-lg hover:bg-black/5 transition"><ChevronLeft size={12} /></button>
+                                  <div className="relative">
+                                    <input
+                                      type="number" step="5"
+                                      value={Number(deg.toFixed(0))}
+                                      onChange={(e) => {
+                                        const val = parseFloat(e.target.value);
+                                        if (isNaN(val)) return;
+                                        const currentRot = data.items[editingPath]?.decorRotation || [0, 0, 0];
+                                        const newRot = [...currentRot];
+                                        newRot[axis.index] = (val * Math.PI) / 180;
+                                        setData({ ...data, items: { ...data.items, [editingPath]: { ...data.items[editingPath], decorRotation: newRot } } });
+                                      }}
+                                      className="w-16 text-center font-mono text-[10px] font-bold bg-white border border-border rounded-lg py-1 shadow-inner outline-none focus:ring-1 focus:ring-primary"
+                                    />
+                                    <span className="absolute right-2 top-1.5 text-[10px] text-textMuted pointer-events-none">°</span>
+                                  </div>
+                                  <button onClick={() => updateRot(5)} className="p-1.5 bg-white border border-border rounded-lg hover:bg-black/5 transition"><ChevronRight size={12} /></button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <button onClick={() => { setEditingPath(null); handleSave(); }} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-2xl mt-8 transition-all shadow-lg hover:shadow-primary/20">
                     Save Changes
                   </button>
                 </div>
@@ -593,8 +663,9 @@ export default function AccessoryManager() {
                         boneName={data.items[editingPath]?.bone || "Head"}
                         offset={data.items[editingPath]?.offset || [0, 0, 0]}
                         rotation={data.items[editingPath]?.rotation || [0, 0, 0]}
+                        decorRotation={data.items[editingPath]?.decorRotation}
                         scale={data.items[editingPath]?.scale || 75}
-                        type={data.items[editingPath]?.type || 'accessory'}
+                        type={data.items[editingPath]?.type === 'both' ? previewMode : (data.items[editingPath]?.type || 'accessory')}
                         animated={animated}
                         isEditingAccessory={isEditingAccessory}
                         transformMode={transformMode}
@@ -610,10 +681,19 @@ export default function AccessoryManager() {
                         onRotationChange={(newRotation) => {
                           setData(prev => {
                             if (!prev) return prev;
-                            return {
-                              ...prev,
-                              items: { ...prev.items, [editingPath]: { ...prev.items[editingPath], rotation: newRotation } }
-                            };
+                            // Update the correct rotation based on previewMode
+                            const isDecorPreview = data.items[editingPath]?.type === 'decor' || (data.items[editingPath]?.type === 'both' && previewMode === 'decor');
+                            if (isDecorPreview) {
+                              return {
+                                ...prev,
+                                items: { ...prev.items, [editingPath]: { ...prev.items[editingPath], decorRotation: newRotation } }
+                              };
+                            } else {
+                              return {
+                                ...prev,
+                                items: { ...prev.items, [editingPath]: { ...prev.items[editingPath], rotation: newRotation } }
+                              };
+                            }
                           });
                         }}
                         onScaleChange={(newScale) => {
@@ -653,7 +733,21 @@ export default function AccessoryManager() {
                   )}
                 </div>
 
-                <div className="absolute top-6 right-16">
+                <div className="absolute top-6 right-6 flex gap-3 items-start">
+                  {data.items[editingPath]?.type === 'both' && (
+                    <div className="flex gap-1.5 bg-white/40 backdrop-blur-md p-1.5 rounded-2xl border border-white/50 shadow-lg">
+                      {(["accessory", "decor"] as const).map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setPreviewMode(m)}
+                          className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border ${previewMode === m ? "bg-primary text-white border-primary shadow-md" : "bg-white/80 text-textMuted border-white hover:bg-white"
+                            }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     onClick={() => setAnimated(!animated)}
                     className={`bg-white/80 backdrop-blur-xl border border-white px-4 py-2 rounded-2xl text-[10px] font-bold shadow-xl uppercase tracking-widest transition-all ${animated ? 'text-green-600 ring-2 ring-green-600/20' : 'text-textMuted hover:text-textMain'}`}
