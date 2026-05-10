@@ -1141,6 +1141,6 @@ app.get('*all', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Admin Server API running on http://localhost:${PORT}`);
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Admin Server API running on http://127.0.0.1:${PORT}`);
 });

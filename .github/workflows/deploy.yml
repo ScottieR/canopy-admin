@@ -1,0 +1,73 @@
+name: Deploy Admin Server to Cloud Run
+
+on:
+  push:
+    branches:
+      - production
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canopy-admin
+        uses: actions/checkout@v4
+        with:
+          path: canopy-admin
+
+      - name: Checkout canopy (for assets and tests)
+        uses: actions/checkout@v4
+        with:
+          repository: ScottieR/canopy
+          path: canopy
+          token: ${{ secrets.PAT_TOKEN }} # Only needed if canopy repo is private
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Tests (Canopy)
+        run: |
+          cd canopy
+          npm install
+          npm run test -- --run
+        continue-on-error: false
+
+      - name: Send Alert on Test Failure
+        if: failure()
+        run: |
+          # The deploy will automatically halt here since the tests failed.
+          # To send an alert to your phone/slack/discord, paste your webhook URL here.
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Canopy Admin Deploy Failed: Tests did not pass on production branch!"}' ${{ secrets.ALERT_WEBHOOK_URL }}
+
+      - name: Prepare Dockerfile
+        run: |
+          cat << 'EOF' > Dockerfile
+          FROM node:20-alpine
+          WORKDIR /app
+          RUN apk add --no-cache python3 make g++
+          COPY canopy-admin/package*.json ./canopy-admin/
+          WORKDIR /app/canopy-admin
+          RUN npm install
+          WORKDIR /app
+          COPY canopy/public ./canopy/public
+          COPY canopy-admin ./canopy-admin
+          WORKDIR /app/canopy-admin
+          RUN npm run build
+          ENV PORT=8080
+          EXPOSE 8080
+          CMD ["node", "server.js"]
+          EOF
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: canopy-admin
+          region: us-central1
+          source: ./ # This uploads the entire workspace (both repos and the Dockerfile) to Google Cloud Build
+          project_id: canopy-admin-server
