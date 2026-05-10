@@ -62,7 +62,7 @@ export default function AccessoryManager() {
   const [animated, setAnimated] = useState(false);
   const [isEditingAccessory, setIsEditingAccessory] = useState(true);
   const [transformMode, setTransformMode] = useState<"translate" | "rotate" | "scale">("translate");
-  const [previewMode, setPreviewMode] = useState<"accessory" | "decor">("accessory");
+  const [previewMode, setPreviewMode] = useState<"wearable" | "decor">("wearable");
   const [searchTerm, setSearchTerm] = useState("");
   const [personaFilter, setPersonaFilter] = useState<string>("All");
   const [typeFilter, setTypeFilter] = useState<string>("All");
@@ -139,7 +139,7 @@ export default function AccessoryManager() {
     const matchesPersona = personaFilter === "All" || (data.defaults[personaFilter]?.includes(path));
 
     const matchesType = typeFilter === "All" ||
-      (typeFilter === "wearable" && (item.type === "accessory" || item.type === "both" || !item.type)) ||
+      (typeFilter === "wearable" && (item.type === "wearable" || item.type === "both" || !item.type)) ||
       (typeFilter === "decor" && (item.type === "decor" || item.type === "both")) ||
       (typeFilter === "both" && item.type === "both");
 
@@ -452,7 +452,7 @@ export default function AccessoryManager() {
                     <div>
                       <label className="text-[10px] font-bold text-textMuted uppercase mb-2 block tracking-widest">Asset Type</label>
                       <select
-                        value={data.items[editingPath]?.type || "accessory"}
+                        value={data.items[editingPath]?.type || "wearable"}
                         onChange={(e) => {
                           if (!data) return;
                           setData({
@@ -462,7 +462,7 @@ export default function AccessoryManager() {
                         }}
                         className="w-full bg-white border border-border rounded-xl px-3 py-2.5 text-xs font-bold text-textMain focus:outline-none focus:border-primary shadow-sm"
                       >
-                        <option value="accessory">Wearable Accessory</option>
+                        <option value="wearable">Wearable Accessory</option>
                         <option value="decor">Environment Decor</option>
                         <option value="both">Both</option>
                       </select>
@@ -739,7 +739,7 @@ export default function AccessoryManager() {
                 <div className="absolute top-6 right-6 flex gap-3 items-start">
                   {data.items[editingPath]?.type === 'both' && (
                     <div className="flex gap-1.5 bg-white/40 backdrop-blur-md p-1.5 rounded-2xl border border-white/50 shadow-lg">
-                      {(["accessory", "decor"] as const).map(m => (
+                      {(["wearable", "decor"] as const).map(m => (
                         <button
                           key={m}
                           onClick={() => setPreviewMode(m)}
