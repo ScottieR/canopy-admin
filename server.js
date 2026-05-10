@@ -39,7 +39,7 @@ try {
 const upload = multer({ dest: '/tmp/uploads/' });
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 const DATA_DIR = path.join(__dirname, '../shared');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
