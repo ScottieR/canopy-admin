@@ -869,7 +869,7 @@ User Request: ${prompt}`;
       const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 100000)}`;
       return {
         prompt: item,
-        url: `/api/proxy-image?url=${encodeURIComponent(pollinationsUrl)}`,
+        url: `http://localhost:3001/api/proxy-image?url=${encodeURIComponent(pollinationsUrl)}`,
         originalUrl: pollinationsUrl
       };
     });
@@ -880,38 +880,48 @@ User Request: ${prompt}`;
   }
 });
 
+let proxyQueue = Promise.resolve();
+
 app.get('/api/proxy-image', async (req, res) => {
   const imageUrl = req.query.url;
   if (!imageUrl) return res.status(400).send('Missing url');
 
-  const MAX_RETRIES = 3;
-  for (let i = 0; i < MAX_RETRIES; i++) {
-    try {
-      const response = await fetch(imageUrl);
-      if (!response.ok) {
-        if (response.status === 429 || response.status >= 500) {
-          throw new Error(`External fetch failed: ${response.status}`);
-        } else {
-          // If it's a 404 or something else, don't retry
-          throw new Error(`External fetch failed fatally: ${response.status}`);
+  const processRequest = async () => {
+    // Hard wait of 5 seconds before EVERY request to comply with pollinations rate limits
+    await new Promise(r => setTimeout(r, 5000));
+
+    const MAX_RETRIES = 5;
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        const response = await fetch(imageUrl);
+        if (!response.ok) {
+          if (response.status === 429 || response.status >= 500) {
+            throw new Error(`External fetch failed: ${response.status}`);
+          } else {
+            throw new Error(`External fetch failed fatally: ${response.status}`);
+          }
         }
-      }
 
-      const buffer = await response.arrayBuffer();
-      const contentType = response.headers.get('content-type') || 'image/jpeg';
+        const buffer = await response.arrayBuffer();
+        const contentType = response.headers.get('content-type') || 'image/jpeg';
 
-      res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=3600');
-      return res.send(Buffer.from(buffer));
-    } catch (e) {
-      if (i === MAX_RETRIES - 1 || e.message.includes("fatally")) {
-        console.error("Proxy error after retries:", e.message);
-        return res.status(500).send('Image proxy failed');
+        res.set('Content-Type', contentType);
+        res.set('Cache-Control', 'public, max-age=3600');
+        return res.send(Buffer.from(buffer));
+      } catch (e) {
+        if (i === MAX_RETRIES - 1 || e.message.includes("fatally")) {
+          console.error("Proxy error after retries:", e.message);
+          return res.status(500).send('Image proxy failed');
+        }
+        console.warn(`[Proxy] Retry ${i+1}/${MAX_RETRIES} for ${imageUrl.substring(0, 50)}...`);
+        // Exponential backoff
+        await new Promise(r => setTimeout(r, 2000 * (i + 1)));
       }
-      // Wait before retrying
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
-  }
+  };
+
+  // Add to global promise queue to prevent pollinations.ai 429 errors from parallel generation
+  proxyQueue = proxyQueue.then(processRequest).catch(() => {});
 });
 
 async function uploadToPublicBridge(localPath) {
@@ -995,6 +1005,23 @@ app.post('/api/meshy-task', async (req, res) => {
 
     const taskId = data.result;
     taskIdToPath.set(taskId, imageUrl);
+
+    // Immediately download the original PNG so it appears in the catalog instantly while the 3D model bakes
+    try {
+      const trueUrl = imageUrl.includes('/api/proxy-image?url=') ? decodeURIComponent(imageUrl.split('url=')[1]) : imageUrl;
+      // Also handle direct pollinations url if bypassed proxy
+      const finalUrl = trueUrl.includes('localhost:') ? decodeURIComponent(trueUrl.split('url=')[1]) : trueUrl;
+      
+      const imgRes = await fetch(finalUrl);
+      if (imgRes.ok) {
+        const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+        const pngSavePath = path.join(__dirname, '../canopy/public/accessories', `meshy_${taskId}.png`);
+        fs.writeFileSync(pngSavePath, imgBuffer);
+      }
+    } catch (e) {
+      console.error("[MESHY] Failed to download PNG upfront:", e);
+    }
+
     console.log("[MESHY] Task started successfully:", taskId);
     res.json({ success: true, taskId });
   } catch (e) {
@@ -1020,45 +1047,18 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
       const buffer = Buffer.from(await download.arrayBuffer());
 
       let fileName = `meshy_${taskId}.glb`;
-      if (originalPath && originalPath.includes('.')) {
-        // Use original base name but with .glb extension
-        fileName = path.basename(originalPath).replace(/\.[^/.]+$/, "") + ".glb";
+      if (originalPath && originalPath.includes('.') && !originalPath.includes('pollinations.ai') && !originalPath.startsWith('http')) {
+        // Use original base name but with .glb extension for local files
+        const derivedName = path.basename(originalPath.split('?')[0]).replace(/\.[^/.]+$/, "") + ".glb";
+        if (derivedName.length < 100) {
+          fileName = derivedName;
+        }
       }
 
       const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
       fs.writeFileSync(savePath, buffer);
 
       console.log(`[MESHY] Saved GLB to: ${savePath}`);
-
-      // If this was generated from a Pollinations URL (AI generator), download and save the 2D image too
-      if (originalPath && (originalPath.includes('/api/proxy-image?url=') || originalPath.includes('pollinations.ai'))) {
-        let imgRes = null;
-        const trueUrl = originalPath.includes('/api/proxy-image?url=') ? decodeURIComponent(originalPath.split('url=')[1]) : originalPath;
-        
-        for (let i = 0; i < 3; i++) {
-          try {
-            imgRes = await fetch(trueUrl);
-            if (imgRes.ok) break;
-            await new Promise(r => setTimeout(r, 1000));
-          } catch (e) {
-            await new Promise(r => setTimeout(r, 1000));
-          }
-        }
-
-        if (imgRes && imgRes.ok) {
-          try {
-            const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-            const pngFileName = fileName.replace('.glb', '.png');
-            const pngSavePath = path.join(__dirname, '../canopy/public/accessories', pngFileName);
-            fs.writeFileSync(pngSavePath, imgBuffer);
-            console.log(`[MESHY] Saved source PNG to: ${pngSavePath}`);
-          } catch (imgErr) {
-            console.error("[MESHY] Failed to save source PNG:", imgErr);
-          }
-        } else {
-          console.error("[MESHY] Failed to download source PNG after retries.");
-        }
-      }
 
       taskIdToPath.delete(taskId);
       return res.json({ success: true, status: data.status, glbPath: `/accessories/${fileName}` });

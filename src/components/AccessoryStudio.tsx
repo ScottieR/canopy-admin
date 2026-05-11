@@ -39,7 +39,12 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
       if (data.error) throw new Error(data.error);
       
       const taskId = data.taskId;
-      setBakingStates(prev => ({ ...prev, [url]: "meshing" }));
+      
+      // Immediately save the image as a new accessory in the catalog
+      const pngPath = `/accessories/meshy_${taskId}.png`;
+      onAddAccessory(pngPath, metadata);
+
+      setBakingStates(prev => ({ ...prev, [url]: "0" })); // Initialize progress
       
       // Poll
       const poll = setInterval(async () => {
@@ -48,15 +53,12 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
         if (checkData.status === "SUCCEEDED") {
           clearInterval(poll);
           setBakingStates(prev => ({ ...prev, [url]: "done" }));
-          // We pass the png path but the manager expects the png path as the key, 
-          // and it will derive the glb from it.
-          // Wait, checkData.glbPath might be different. 
-          // The manager usually expects the PNG path as the key.
-          const pngPath = checkData.glbPath.replace('.glb', '.png');
-          onAddAccessory(pngPath, metadata);
         } else if (checkData.status === "FAILED") {
           clearInterval(poll);
           setBakingStates(prev => ({ ...prev, [url]: "failed" }));
+        } else {
+          const progressStr = checkData.progress ? String(checkData.progress) : "0";
+          setBakingStates(prev => ({ ...prev, [url]: progressStr }));
         }
       }, 3000);
       
@@ -128,13 +130,14 @@ export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: str
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4">
                 <p className="text-white text-xs text-center mb-3 line-clamp-2">{img.prompt}</p>
                 <button 
-                  onClick={() => bakeTo3D(img.originalUrl || img.url, { name: img.prompt, description: `Generated via Nano Banana Studio with prompt: ${img.prompt}` })}
+                  onClick={() => bakeTo3D(img.originalUrl || img.url, { name: prompt, description: `Generated via Nano Banana Studio with prompt: ${img.prompt}` })}
                   disabled={!!bakingStates[img.url]}
                   className="bg-white text-black font-bold text-xs px-3 py-1.5 rounded-md w-full flex items-center justify-center gap-2"
                 >
                   {bakingStates[img.url] === "starting" ? "Sending..." :
-                   bakingStates[img.url] === "meshing" ? <><Loader2 size={12} className="animate-spin" /> Meshy Baking...</> :
                    bakingStates[img.url] === "done" ? "Added to Scene!" :
+                   bakingStates[img.url] === "failed" ? "Baking Failed" :
+                   bakingStates[img.url] !== undefined ? <><Loader2 size={12} className="animate-spin" /> Meshy Baking ({bakingStates[img.url]}%)...</> :
                    <>Bake to 3D <ArrowRight size={12} /></>}
                 </button>
               </div>
