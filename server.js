@@ -36,6 +36,18 @@ try {
   // Silent
 }
 
+let ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const keyMatch = envContent.match(/^ADMIN_API_KEY=(.+)$/m);
+    if (keyMatch) ADMIN_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+  }
+} catch (e) {
+  // Silent
+}
+
 const upload = multer({ dest: '/tmp/uploads/' });
 
 const app = express();
@@ -72,9 +84,23 @@ if (!fs.existsSync(ACCESSORIES_FILE)) {
 
 app.use(cors());
 app.use(express.json());
-app.use('/agents', express.static(path.join(__dirname, '../canopy/public/agents')));
-app.use('/models', express.static(path.join(__dirname, '../canopy/public/models')));
-app.use('/accessories', express.static(path.join(__dirname, '../canopy/public/accessories')));
+
+// Admin API Key Protection for write operations
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    // Only enforce if the key is actually set on the server
+    if (ADMIN_API_KEY) {
+      const userKey = req.headers['x-admin-key'] || req.query.adminKey;
+      if (userKey !== ADMIN_API_KEY) {
+        return res.status(401).json({ error: "Unauthorized: Admin access required" });
+      }
+    }
+  }
+  next();
+});
+app.use('/agents', express.static(path.join(__dirname, '../shared/public/agents')));
+app.use('/models', express.static(path.join(__dirname, '../shared/public/models')));
+app.use('/accessories', express.static(path.join(__dirname, '../shared/public/accessories')));
 
 // Helper to create CRUD routes for a given file
 if (!fs.existsSync(HABITATS_FILE)) {
@@ -925,7 +951,7 @@ app.get('/api/proxy-image', async (req, res) => {
 });
 
 async function uploadToPublicBridge(localPath) {
-  const fullPath = path.join(__dirname, '../canopy/public', localPath);
+  const fullPath = path.join(__dirname, '../shared/public', localPath);
   if (!fs.existsSync(fullPath)) throw new Error("Local file not found at: " + fullPath);
 
   console.log(`[BRIDGE] Uploading local asset to public bridge: ${localPath}`);
@@ -1015,7 +1041,7 @@ app.post('/api/meshy-task', async (req, res) => {
       const imgRes = await fetch(finalUrl);
       if (imgRes.ok) {
         const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-        const pngSavePath = path.join(__dirname, '../canopy/public/accessories', `meshy_${taskId}.png`);
+        const pngSavePath = path.join(__dirname, '../shared/public/accessories', `meshy_${taskId}.png`);
         fs.writeFileSync(pngSavePath, imgBuffer);
       }
     } catch (e) {
@@ -1055,7 +1081,7 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
         }
       }
 
-      const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
+      const savePath = path.join(__dirname, '../shared/public/accessories', fileName);
       fs.writeFileSync(savePath, buffer);
 
       console.log(`[MESHY] Saved GLB to: ${savePath}`);
@@ -1077,7 +1103,7 @@ app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
     if (!file) return res.status(400).json({ error: 'No image provided' });
     const ext = path.extname(file.originalname).toLowerCase();
     const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
-    const savePath = path.join(__dirname, '../canopy/public/agents', fileName);
+    const savePath = path.join(__dirname, '../shared/public/agents', fileName);
     fs.renameSync(file.path, savePath);
 
     res.json({ success: true, imagePath: `/agents/${fileName}` });
@@ -1096,7 +1122,7 @@ app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
     for (const file of req.files) {
       const ext = path.extname(file.originalname).toLowerCase();
       const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
-      const savePath = path.join(__dirname, '../canopy/public/accessories', fileName);
+      const savePath = path.join(__dirname, '../shared/public/accessories', fileName);
       fs.renameSync(file.path, savePath);
 
       const relativePath = `/accessories/${fileName}`;
