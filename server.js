@@ -63,6 +63,19 @@ const MODELS_FILE = path.join(DATA_DIR, 'models.json');
 const ACCESSORIES_FILE = path.join(DATA_DIR, 'accessories.json');
 const HABITATS_FILE = path.join(DATA_DIR, 'habitats.json');
 const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
+const RELEASES_FILE = path.join(DATA_DIR, 'releases.json');
+const RELEASES_DIR = path.join(__dirname, '../shared/public/releases');
+
+// Make sure the on-disk shape exists before any request races against it.
+// `releases.json` is the source of truth for the in-app updater — when a
+// new build is published we write a row in here and Tauri clients pick it
+// up on next launch via `GET /api/updates/:target/:currentVersion`.
+if (!fs.existsSync(RELEASES_DIR)) {
+  fs.mkdirSync(RELEASES_DIR, { recursive: true });
+}
+if (!fs.existsSync(RELEASES_FILE)) {
+  fs.writeFileSync(RELEASES_FILE, JSON.stringify({ latest: null, releases: [] }, null, 2), 'utf8');
+}
 
 // --- Seed Default Accessories if missing ---
 if (!fs.existsSync(ACCESSORIES_FILE)) {
@@ -88,6 +101,12 @@ app.use(express.json());
 // Admin API Key Protection for write operations
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    // Whitelist endpoints that are meant for public client telemetry/ingress
+    const whitelistedPaths = ['/api/usage'];
+    if (whitelistedPaths.includes(req.path)) {
+      return next();
+    }
+
     // Only enforce if the key is actually set on the server
     if (ADMIN_API_KEY) {
       const userKey = req.headers['x-admin-key'] || req.query.adminKey;
@@ -101,6 +120,10 @@ app.use((req, res, next) => {
 app.use('/agents', express.static(path.join(__dirname, '../shared/public/agents')));
 app.use('/models', express.static(path.join(__dirname, '../shared/public/models')));
 app.use('/accessories', express.static(path.join(__dirname, '../shared/public/accessories')));
+// Serve the actual update artifacts (`.tar.gz`, `.sig`) that Tauri downloads when
+// applying an update. Drop new builds into `shared/public/releases/` and reference
+// them by `/releases/<filename>` in `releases.json`.
+app.use('/releases', express.static(RELEASES_DIR));
 
 // Helper to create CRUD routes for a given file
 if (!fs.existsSync(HABITATS_FILE)) {
@@ -582,6 +605,153 @@ createJsonApi('/api/pricing', PRICING_FILE);
 createJsonApi('/api/models', MODELS_FILE);
 createJsonApi('/api/accessories', ACCESSORIES_FILE);
 createJsonApi('/api/habitats', HABITATS_FILE);
+
+// ─── Tauri Updater endpoints ─────────────────────────────────────────────────
+//
+// Wired into `tauri.conf.json` -> `plugins.updater.endpoints`. The Tauri client
+// hits `/api/updates/:target/:currentVersion` on launch; we either return the
+// update manifest (HTTP 200, JSON described at https://v2.tauri.app/plugin/updater/)
+// or HTTP 204 No Content meaning "you're up to date".
+//
+// New builds are registered by POSTing to `/api/releases` with the version,
+// notes, and per-target { signature, url }. The signature must be the
+// *contents* of the `.sig` file Tauri writes next to the bundle when
+// TAURI_SIGNING_PRIVATE_KEY is set during `tauri build`. Storage shape:
+//
+//   releases.json = { latest: "0.2.0", releases: [ { version, pub_date,
+//     notes, platforms: { "darwin-aarch64": { signature, url }, ... } } ] }
+
+// Simple X.Y.Z comparator — returns 1 if a > b, -1 if a < b, 0 if equal.
+// Good enough for our versioning; if we ever ship pre-release tags we should
+// pull in `semver` instead.
+function compareVersions(a, b) {
+  const parse = v => String(v || '0.0.0').split('.').map(n => parseInt(n, 10) || 0);
+  const [a1, a2, a3] = parse(a);
+  const [b1, b2, b3] = parse(b);
+  if (a1 !== b1) return a1 > b1 ? 1 : -1;
+  if (a2 !== b2) return a2 > b2 ? 1 : -1;
+  if (a3 !== b3) return a3 > b3 ? 1 : -1;
+  return 0;
+}
+
+function readReleases() {
+  try {
+    if (!fs.existsSync(RELEASES_FILE)) return { latest: null, releases: [] };
+    return JSON.parse(fs.readFileSync(RELEASES_FILE, 'utf8'));
+  } catch (e) {
+    console.error("Failed to read releases.json:", e);
+    return { latest: null, releases: [] };
+  }
+}
+
+function writeReleases(data) {
+  fs.writeFileSync(RELEASES_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
+// Tauri updater poll endpoint — public (read-only, no admin key required).
+// Tauri targets look like: darwin-aarch64, darwin-x86_64, windows-x86_64,
+// linux-x86_64. We respond 204 if the client is on the latest version or
+// newer, otherwise return the manifest for the latest release that has a
+// build for the requested target.
+app.get('/api/updates/:target/:currentVersion', (req, res) => {
+  const { target, currentVersion } = req.params;
+  const data = readReleases();
+
+  if (!data.latest || !data.releases?.length) {
+    return res.status(204).send();
+  }
+
+  // Pick the highest version that has an artifact for the requested target.
+  // (If the user's on macOS Intel and we only published an Apple Silicon build
+  // for the new version, they shouldn't get prompted.)
+  const candidates = data.releases
+    .filter(r => r.platforms && r.platforms[target])
+    .sort((a, b) => compareVersions(b.version, a.version));
+
+  const latest = candidates[0];
+  if (!latest) {
+    return res.status(204).send();
+  }
+
+  if (compareVersions(currentVersion, latest.version) >= 0) {
+    return res.status(204).send();
+  }
+
+  res.json({
+    version: latest.version,
+    notes: latest.notes || "",
+    pub_date: latest.pub_date,
+    platforms: {
+      [target]: latest.platforms[target],
+    },
+  });
+});
+
+// List releases — handy for the admin UI / debugging.
+app.get('/api/releases', (req, res) => {
+  res.json(readReleases());
+});
+
+// Register a new release. Admin-key protected (the global write guard above
+// already enforces this for POST when ADMIN_API_KEY is set).
+//
+// Body shape:
+//   { version: "0.2.0",
+//     notes:   "What changed",
+//     pub_date: "2026-05-13T14:00:00Z",   // optional, defaults to now
+//     platforms: {
+//       "darwin-aarch64": { signature: "<.sig contents>", url: "/releases/Canopy_0.2.0_aarch64.app.tar.gz" },
+//       ...
+//     } }
+app.post('/api/releases', (req, res) => {
+  const { version, notes, pub_date, platforms } = req.body || {};
+
+  if (!version || typeof version !== 'string') {
+    return res.status(400).json({ error: "version is required (string, e.g. '0.2.0')" });
+  }
+  if (!platforms || typeof platforms !== 'object' || !Object.keys(platforms).length) {
+    return res.status(400).json({ error: "platforms is required (object keyed by Tauri target, e.g. 'darwin-aarch64')" });
+  }
+  for (const [tgt, p] of Object.entries(platforms)) {
+    if (!p || typeof p.signature !== 'string' || typeof p.url !== 'string') {
+      return res.status(400).json({ error: `platforms.${tgt} must be { signature: string, url: string }` });
+    }
+  }
+
+  const data = readReleases();
+  // Replace if a row for this exact version already exists — re-publishing a
+  // version is a normal flow when you fix a signature, change notes, etc.
+  data.releases = (data.releases || []).filter(r => r.version !== version);
+  data.releases.push({
+    version,
+    notes: notes || "",
+    pub_date: pub_date || new Date().toISOString(),
+    platforms,
+  });
+
+  // Recompute `latest` as the highest version across remaining releases.
+  data.latest = data.releases
+    .map(r => r.version)
+    .sort(compareVersions)
+    .reverse()[0] || null;
+
+  writeReleases(data);
+  res.json({ success: true, latest: data.latest, count: data.releases.length });
+});
+
+// Delete a release (e.g. you published a broken signature and want to roll back).
+app.delete('/api/releases/:version', (req, res) => {
+  const { version } = req.params;
+  const data = readReleases();
+  const before = data.releases?.length || 0;
+  data.releases = (data.releases || []).filter(r => r.version !== version);
+  if (data.releases.length === before) {
+    return res.status(404).json({ error: `version ${version} not found` });
+  }
+  data.latest = data.releases.map(r => r.version).sort(compareVersions).reverse()[0] || null;
+  writeReleases(data);
+  res.json({ success: true, latest: data.latest });
+});
 
 app.post('/api/usage', (req, res) => {
   const { agentId, role, tokensIn, tokensOut, messagesHandled, tasksToday } = req.body;
@@ -1167,6 +1337,11 @@ app.get('*all', (req, res) => {
   }
 });
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Admin Server API running on http://127.0.0.1:${PORT}`);
+// Bind to 0.0.0.0 so the same code works locally AND inside Cloud Run.
+// Cloud Run's health checks come in via the container's external interface;
+// binding to 127.0.0.1 only would make the service unreachable from the
+// outside and the container would fail to come up.
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`Admin Server API running on http://${HOST}:${PORT}`);
 });
