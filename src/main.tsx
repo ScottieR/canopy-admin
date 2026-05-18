@@ -14,7 +14,7 @@ window.fetch = async (...args) => {
   
   // Only intercept our own API mutations
   if (urlStr.includes('/api/') && ['POST', 'PUT', 'DELETE'].includes(method)) {
-    let adminKey = localStorage.getItem('adminApiKey') || '';
+    let adminKey = import.meta.env.ADMIN_API_KEY || localStorage.getItem('adminApiKey') || '';
     
     config = config || {};
     config.headers = {

@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense, useMemo } from 'react';
-import { Layers, Plus, Trash2, Save, Move3d, X, Image as ImageIcon } from 'lucide-react';
+import { Layers, Plus, Trash2, Save, Move3d, X, Image as ImageIcon, Wand2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas } from '@react-three/fiber';
 import { useGLTF, OrbitControls } from '@react-three/drei';
@@ -56,6 +56,62 @@ export default function HabitatManager() {
   const [editingPlacement, setEditingPlacement] = useState<number | null>(null);
   const [placementMode, setPlacementMode] = useState<'lobster' | 'paint' | 'erase'>('lobster');
 
+  const [genPrompt, setGenPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genStatus, setGenStatus] = useState("");
+
+  const handleGenerate = async (index: number) => {
+    if (!genPrompt) return;
+    setIsGenerating(true);
+    setGenStatus("Generating image concept...");
+    try {
+      const resImg = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: `An isometric floating island habitat environment for: ${genPrompt}` })
+      });
+      const dataImg = await resImg.json();
+      if (!dataImg.compiledImageUrl) throw new Error(dataImg.error || "Image generation failed");
+      
+      setGenStatus("Baking 3D model (this takes ~1-2 mins)...");
+      const resMeshy = await fetch('/api/meshy-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: dataImg.compiledImageUrl })
+      });
+      const dataMeshy = await resMeshy.json();
+      if (!dataMeshy.taskId) throw new Error(dataMeshy.error || "Meshy task failed");
+      
+      const poll = setInterval(async () => {
+        try {
+          const resCheck = await fetch(`/api/meshy-check/${dataMeshy.taskId}`);
+          const dataCheck = await resCheck.json();
+          
+          if (dataCheck.status === 'SUCCEEDED') {
+            clearInterval(poll);
+            updateHabitat(index, 'path', dataCheck.glbPath);
+            setGenStatus("Model generated successfully!");
+            setIsGenerating(false);
+            setTimeout(() => setGenStatus(""), 3000);
+          } else if (dataCheck.status === 'FAILED') {
+            clearInterval(poll);
+            setGenStatus("Failed to generate 3D model.");
+            setIsGenerating(false);
+          } else {
+            setGenStatus(`Baking 3D model... ${dataCheck.progress || 0}%`);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }, 5000);
+      
+    } catch (e: any) {
+      console.error(e);
+      setGenStatus("Error: " + e.message);
+      setIsGenerating(false);
+    }
+  };
+
   const fetchHabitats = () => {
     fetch('/api/habitats')
       .then(res => res.json())
@@ -93,7 +149,8 @@ export default function HabitatManager() {
       name: `New Habitat ${newId}`,
       path: '',
       type: 'glb',
-      placement: { x: 0, y: 0, z: 0, rotationY: 0 }
+      placement: { x: 0, y: 0, z: 0, rotationY: 0 },
+      isProjectSpace: false
     }];
     saveHabitats(newHabitats);
   };
@@ -172,8 +229,9 @@ export default function HabitatManager() {
               <p className="text-xs font-medium text-textMuted mt-1 truncate" title={habitat.path}>{habitat.path || 'No model path defined'}</p>
               
               <div className="mt-auto pt-4 flex items-center justify-between">
-                 <div className="text-[10px] font-bold text-textMuted uppercase bg-backgroundAlt px-2 py-1 rounded-md">
-                   {habitat.type === 'glb' ? '3D Model' : 'Pedestal'}
+                 <div className="text-[10px] font-bold text-textMuted uppercase bg-backgroundAlt px-2 py-1 rounded-md flex gap-2">
+                   <span>{habitat.type === 'glb' ? '3D Model' : 'Pedestal'}</span>
+                   {habitat.isProjectSpace && <span className="text-primary font-extrabold">• Project Space</span>}
                  </div>
                  <div className="text-[10px] font-bold text-textMuted uppercase">
                    Pts: {habitat.decorPoints?.length || 0}
@@ -231,6 +289,19 @@ export default function HabitatManager() {
                         </select>
                       </div>
 
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="isProjectSpace"
+                          checked={habitats[editingPlacement].isProjectSpace || false}
+                          onChange={(e) => updateHabitat(editingPlacement, 'isProjectSpace', e.target.checked)}
+                          className="accent-primary w-4 h-4"
+                        />
+                        <label htmlFor="isProjectSpace" className="text-xs font-bold text-textMain cursor-pointer">
+                          Mark as Project Space
+                        </label>
+                      </div>
+
                       <div>
                         <label className="block text-[10px] font-bold text-textMuted mb-2 uppercase tracking-wider">File Path (URL or local path)</label>
                         <input
@@ -240,6 +311,27 @@ export default function HabitatManager() {
                           placeholder="/models/habitats/example.glb"
                           className="w-full bg-white border border-border rounded-xl px-4 py-2 text-xs font-mono focus:ring-2 focus:ring-primary/20 outline-none shadow-sm text-textMain"
                         />
+                      </div>
+
+                      <div className="bg-backgroundAlt border border-border rounded-xl p-4">
+                        <label className="block text-[10px] font-bold text-textMuted mb-2 uppercase tracking-wider flex items-center gap-1"><Wand2 size={12}/> Generate with AI</label>
+                        <textarea
+                          value={genPrompt}
+                          onChange={e => setGenPrompt(e.target.value)}
+                          placeholder="e.g. A futuristic zen garden..."
+                          className="w-full bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium outline-none shadow-sm text-textMain mb-2"
+                          rows={2}
+                          disabled={isGenerating}
+                        />
+                        <button
+                          onClick={() => handleGenerate(editingPlacement)}
+                          disabled={isGenerating || !genPrompt}
+                          className="w-full flex items-center justify-center gap-2 bg-primary text-white font-bold text-xs py-2 rounded-lg hover:bg-primaryHover disabled:opacity-50 transition-colors"
+                        >
+                          {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                          {isGenerating ? 'Generating...' : 'Generate 3D Model'}
+                        </button>
+                        {genStatus && <div className="text-[10px] font-mono mt-2 text-primary text-center">{genStatus}</div>}
                       </div>
 
                       <div className="pt-6 border-t border-border">

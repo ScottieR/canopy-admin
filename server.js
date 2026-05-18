@@ -101,9 +101,15 @@ app.use(express.json());
 // Admin API Key Protection for write operations
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    console.log(`[Auth Middleware] Intercepted ${req.method} ${req.path}`);
     // Whitelist endpoints that are meant for public client telemetry/ingress
-    const whitelistedPaths = ['/api/usage'];
-    if (whitelistedPaths.includes(req.path)) {
+    const whitelistedPaths = ['/api/usage', '/api/generate', '/api/agents/add-suggestion'];
+    
+    // Some paths might come with trailing slashes, so normalize it
+    const normalizedPath = req.path.replace(/\/+$/, '') || '/';
+    
+    if (whitelistedPaths.includes(normalizedPath) || whitelistedPaths.includes(req.path)) {
+      console.log(`[Auth Middleware] Path ${req.path} is whitelisted.`);
       return next();
     }
 
@@ -363,7 +369,11 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
       textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
     }
 
-    const parsedParams = JSON.parse(textResult);
+    let jsonStr = textResult;
+    if (jsonStr.indexOf('{') !== -1) {
+      jsonStr = jsonStr.substring(jsonStr.indexOf('{'), jsonStr.lastIndexOf('}') + 1);
+    }
+    const parsedParams = JSON.parse(jsonStr);
 
     const aestheticPrompt = `${prompt}, visually matching a cute isometric pastel 3D style monument valley game, vivid colors ${parsedParams.color}, ${parsedParams.habitatLabel}`;
 
@@ -375,7 +385,10 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
         accentColor: parsedParams.accentColor || "#ccc",
         habitatColor: parsedParams.habitatColor || "#D2D6CR",
         habitatLabel: parsedParams.habitatLabel || "The Void",
-        accessories: parsedParams.accessories || []
+        accessories: (parsedParams.accessories || []).filter(acc => {
+          if (!acc || typeof acc !== 'string') return false;
+          return fs.existsSync(path.join(__dirname, '../shared/public', acc.replace(/^\/+/, '')));
+        })
       }
     });
 
