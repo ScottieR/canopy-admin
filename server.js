@@ -880,6 +880,7 @@ async function syncPricingAndModels() {
       "anthropic/claude-sonnet-4-6": litellmPrice("claude-sonnet-4-6", 0.000003, 0.000015),
       "anthropic/claude-haiku-4-5-20251001": litellmPrice("claude-haiku-4-5-20251001", 0.0000008, 0.000004),
       "anthropic/claude-opus-4-6": litellmPrice("claude-opus-4-6", 0.000015, 0.000075),
+      "anthropic/claude-opus-4-7": litellmPrice("claude-opus-4-7", 0.000005, 0.000025),
       "openai/gpt-4o": litellmPrice("gpt-4o", 0.0000025, 0.00001),
       "openai/gpt-4o-mini": litellmPrice("gpt-4o-mini", 0.00000015, 0.0000006),
       "openai/o4-mini": litellmPrice("o4-mini", 0.0000011, 0.0000044),
@@ -891,6 +892,7 @@ async function syncPricingAndModels() {
       { id: "anthropic/claude-sonnet-4-6", provider: "Anthropic", name: "Claude Sonnet 4.6", description: "Fast & highly capable", costIn: mappedPricing["anthropic/claude-sonnet-4-6"].in, costOut: mappedPricing["anthropic/claude-sonnet-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-sonnet-4-6" },
       { id: "anthropic/claude-haiku-4-5", provider: "Anthropic", name: "Claude Haiku 4.5", description: "Fastest Anthropic model", costIn: mappedPricing["anthropic/claude-haiku-4-5-20251001"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5-20251001"].out, strategy: "light", status: "stable", rawVariable: "claude-haiku-4-5" },
       { id: "anthropic/claude-opus-4-6", provider: "Anthropic", name: "Claude Opus 4.6", description: "Most capable Anthropic", costIn: mappedPricing["anthropic/claude-opus-4-6"].in, costOut: mappedPricing["anthropic/claude-opus-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-4-6" },
+      { id: "anthropic/claude-opus-4-7", provider: "Anthropic", name: "Claude Opus 4.7", description: "Flagship Anthropic model", costIn: mappedPricing["anthropic/claude-opus-4-7"].in, costOut: mappedPricing["anthropic/claude-opus-4-7"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-4-7" },
       // OpenAI
       { id: "openai/gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Flagship multimodal", costIn: mappedPricing["openai/gpt-4o"].in, costOut: mappedPricing["openai/gpt-4o"].out, strategy: "heavy", status: "stable", rawVariable: "gpt-4o" },
       { id: "openai/gpt-4o-mini", provider: "OpenAI", name: "GPT-4o Mini", description: "Fast & affordable", costIn: mappedPricing["openai/gpt-4o-mini"].in, costOut: mappedPricing["openai/gpt-4o-mini"].out, strategy: "light", status: "stable", rawVariable: "gpt-4o-mini" },
@@ -925,6 +927,7 @@ async function syncPricingAndModels() {
           "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview",
           "gemini-3.1-flash-image-preview", "gemini-3.1-pro-preview",
           "gemini-3.1-flash-live-preview", "gemini-3.1-flash-tts-preview",
+          "gemini-3.5-flash", "gemini-3.5-pro",
         ]);
         // Anything returned by the page that is NOT in knownStable is suspect — add to blocklist.
         // This catches dated previews like -preview-04-17, -preview-05-06 etc.
@@ -951,15 +954,17 @@ async function syncPricingAndModels() {
     }
 
     // Step 2: Canonical Gemini model list — stable + preview, per deprecations page.
-    // Costs are estimates; the live Google API fetch below will overwrite with real pricing.
     const CANONICAL_GEMINI = [
+      // Gemini 3.5 — Stable GA / Preview
+      { bare: "gemini-3.5-flash", name: "Gemini 3.5 Flash", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Stable — speed optimized flagship" },
+      { bare: "gemini-3.5-pro", name: "Gemini 3.5 Pro", strategy: "heavy", costIn: 1.25, costOut: 5.0, description: "Preview — flagship 3.5 model" },
       // Gemini 3.x — Preview, no shutdown date announced
       { bare: "gemini-3-flash-preview", name: "Gemini 3 Flash", strategy: "light", costIn: 0.15, costOut: 0.6, description: "Preview — successor to 2.5 Flash" },
       { bare: "gemini-3.1-flash-lite-preview", name: "Gemini 3.1 Flash Lite", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Preview — successor to 2.5 Flash Lite" },
       { bare: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", strategy: "heavy", costIn: 1.25, costOut: 5.0, description: "Preview — successor to 2.5 Pro" },
       // Gemini 2.5 — Stable GA, shutdown not before June 2026
       { bare: "gemini-2.5-flash", name: "Gemini 2.5 Flash", strategy: "light", costIn: 0.15, costOut: 0.6, description: "Stable — recommended default" },
-      { bare: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Stable — fastest/cheapest" },
+      { bare: "gemini-2.5-flash-lite", name: "Gemini-2.5-flash-lite", strategy: "light", costIn: 0.075, costOut: 0.3, description: "Stable — fastest/cheapest" },
       { bare: "gemini-2.5-pro", name: "Gemini 2.5 Pro", strategy: "heavy", costIn: 1.25, costOut: 10.0, description: "Stable — flagship model" },
     ];
 
