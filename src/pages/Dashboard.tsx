@@ -46,6 +46,13 @@ export default function Dashboard() {
     (latestUsage.xai || 0) +
     (latestUsage.other || 0);
 
+  // Check if each provider has non-zero usage in the active dataset
+  const hasGoogle = tokenUsageData.some((d: any) => (d.google || 0) > 0);
+  const hasOpenAI = tokenUsageData.some((d: any) => (d.openai || 0) > 0);
+  const hasAnthropic = tokenUsageData.some((d: any) => (d.anthropic || 0) > 0);
+  const hasXai = tokenUsageData.some((d: any) => (d.xai || 0) > 0);
+  const hasOther = tokenUsageData.some((d: any) => (d.other || 0) > 0);
+
   const formatTokens = (val: number) => {
     if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
     if (val >= 1000) return (val / 1000).toFixed(1) + 'k';
@@ -129,11 +136,11 @@ export default function Dashboard() {
                   itemStyle={{ fontWeight: 'bold' }}
                   labelStyle={{ color: '#2D3436', marginBottom: '4px', fontWeight: 'bold' }}
                 />
-                <Area type="monotone" dataKey="google" stackId="1" stroke="#4285F4" strokeWidth={2} fillOpacity={1} fill="url(#colorGoogle)" />
-                <Area type="monotone" dataKey="openai" stackId="1" stroke="#10a37f" strokeWidth={2} fillOpacity={1} fill="url(#colorOpenAI)" />
-                <Area type="monotone" dataKey="anthropic" stackId="1" stroke="#D97757" strokeWidth={2} fillOpacity={1} fill="url(#colorAnthropic)" />
-                <Area type="monotone" dataKey="xai" stackId="1" stroke="#000000" strokeWidth={2} fillOpacity={1} fill="url(#colorXAI)" />
-                <Area type="monotone" dataKey="other" stackId="1" stroke="#94A3B8" strokeWidth={2} fillOpacity={1} fill="url(#colorOther)" />
+                <Area type="monotone" dataKey="google" stroke="#4285F4" strokeWidth={hasGoogle ? 2 : 0} fillOpacity={1} fill="url(#colorGoogle)" />
+                <Area type="monotone" dataKey="openai" stroke="#10a37f" strokeWidth={hasOpenAI ? 2 : 0} fillOpacity={1} fill="url(#colorOpenAI)" />
+                <Area type="monotone" dataKey="anthropic" stroke="#D97757" strokeWidth={hasAnthropic ? 2 : 0} fillOpacity={1} fill="url(#colorAnthropic)" />
+                <Area type="monotone" dataKey="xai" stroke="#000000" strokeWidth={hasXai ? 2 : 0} fillOpacity={1} fill="url(#colorXAI)" />
+                <Area type="monotone" dataKey="other" stroke="#94A3B8" strokeWidth={hasOther ? 2 : 0} fillOpacity={1} fill="url(#colorOther)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
