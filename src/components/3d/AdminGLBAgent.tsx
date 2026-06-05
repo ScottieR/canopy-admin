@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useMemo, Component, ReactNode } from "react";
 import { useGLTF, useAnimations } from "@react-three/drei";
 import * as THREE from "three";
 import { SkeletonUtils } from "three-stdlib";
+import { resolveAssetUrl } from "../../utils/assetBaseUrl";
 
 class SafeAccessoryBoundary extends Component<{ children: ReactNode, name: string }, { hasError: boolean }> {
   constructor(props: { children: ReactNode, name: string }) {
@@ -193,7 +194,7 @@ export function AdminGLBAgent({
           const behavior = accessoryBehaviors?.[acc] || itemData?.type || 'accessory';
           if (behavior !== 'decor') return null;
 
-          const glbPath = acc.startsWith('http') ? acc.replace('.png', '.glb') : `http://localhost:3001${acc.startsWith('/') ? '' : '/'}${acc.replace('.png', '.glb')}`;
+          const glbPath = resolveAssetUrl(acc.replace('.png', '.glb'));
           const transform = decorTransforms[acc];
 
           // 1. Saved transform (prioritized)
@@ -320,6 +321,6 @@ function AdminDecorModel({ url, path, position, rotation, scale, transformRef, t
 
 import { TransformControls } from '@react-three/drei';
 
-import { AttachedAccessory } from '../../../../canopy/src/components/World/AttachedAccessory';
+import { AttachedAccessory } from './AttachedAccessory';
 
 useGLTF.preload("/models/lobsters/BaseLobsterRigged.glb");

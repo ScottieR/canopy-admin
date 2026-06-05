@@ -6,8 +6,6 @@ import { AccessoryPlacementScene } from '../components/3d/AccessoryPlacementScen
 import { Canvas } from '@react-three/fiber';
 import React from 'react';
 
-const IMG_BASE = 'http://localhost:3001';
-
 class ErrorBoundary extends React.Component<{ fallback: React.ReactNode, children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: any) {
     super(props);

@@ -4,7 +4,7 @@ import { useGLTF, useAnimations, TransformControls, OrbitControls, Environment, 
 import * as THREE from 'three';
 import { SkeletonUtils } from 'three-stdlib';
 
-import { AttachedAccessory } from '../../../../canopy/src/components/World/AttachedAccessory';
+import { AttachedAccessory } from './AttachedAccessory';
 import { AdminGLBAgent } from './AdminGLBAgent';
 
 export function AccessoryPlacementScene({

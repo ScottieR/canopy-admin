@@ -6,9 +6,10 @@ import { useGLTF, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { SkeletonUtils } from 'three-stdlib';
 import { HabitatPlacementScene } from '../components/3d/HabitatPlacementScene';
+import { resolveAssetUrl } from '../utils/assetBaseUrl';
 
 function HabitatThumbPreview({ path }: { path: string }) {
-  const { scene } = useGLTF(path.startsWith('http') ? path : `http://localhost:3001${path.startsWith('/') ? '' : '/'}${path}`);
+  const { scene } = useGLTF(resolveAssetUrl(path));
   
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);

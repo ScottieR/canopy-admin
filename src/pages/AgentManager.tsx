@@ -10,8 +10,7 @@ import { AdminGLBAgent } from '../components/3d/AdminGLBAgent';
 import { AccessoryStudio } from '../components/AccessoryStudio';
 import RAW_AGENT_TYPE_INFO from '../../../shared/agents.json';
 import BookSearch from '../components/BookSearch';
-
-const IMG_BASE = 'http://localhost:3001';
+import { resolveAssetUrl } from '../utils/assetBaseUrl';
 
 const SWATCHES = [
   { name: 'Sage', color: '#BFCB75', robeColor: '#A5B55A', accentColor: '#E5EEAF', habitatColor: '#D8E38E' },
@@ -46,7 +45,7 @@ class ModelErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
 function HabitatPreview({ habitatId, habitats }: { habitatId?: string | null, habitats: any[] }) {
   const habitat = habitats.find(h => h.id?.toString() === habitatId?.toString());
   if (!habitat || !habitat.path) return null;
-  const { scene } = useGLTF(habitat.path.startsWith('http') ? habitat.path : `http://localhost:3001${habitat.path.startsWith('/') ? '' : '/'}${habitat.path}`) as any;
+  const { scene } = useGLTF(resolveAssetUrl(habitat.path)) as any;
 
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);

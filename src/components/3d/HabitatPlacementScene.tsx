@@ -2,6 +2,7 @@ import { useRef, useMemo, useEffect } from 'react';
 import { useGLTF, TransformControls, OrbitControls, Environment, useAnimations } from '@react-three/drei';
 import * as THREE from 'three';
 import { SkeletonUtils } from 'three-stdlib';
+import { resolveAssetUrl } from '../../utils/assetBaseUrl';
 
 export function HabitatPlacementScene({
   habitatPath,
@@ -51,7 +52,7 @@ export function HabitatPlacementScene({
 import { useState } from 'react';
 
 function HabitatModel({ path, decorPoints, placementMode, onDecorPointsChange }: { path: string, decorPoints: { x: number, y: number, z: number }[], placementMode: 'lobster' | 'paint' | 'erase', onDecorPointsChange: (pts: { x: number, y: number, z: number }[]) => void }) {
-  const { scene } = useGLTF(path.startsWith('http') ? path : `http://localhost:3001${path.startsWith('/') ? '' : '/'}${path}`);
+  const { scene } = useGLTF(resolveAssetUrl(path));
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene);
     const box = new THREE.Box3().setFromObject(clone);
