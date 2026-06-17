@@ -48,6 +48,20 @@ try {
   // Silent
 }
 
+// Canopy-side key for The Keeper (Eddy). Per spec the Keeper always runs on
+// Canopy's infrastructure — never the user's key ("who fixes the fixer").
+let ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const keyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
+    if (keyMatch) ANTHROPIC_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+  }
+} catch (e) {
+  // Silent
+}
+
 const upload = multer({ dest: '/tmp/uploads/' });
 
 const app = express();
@@ -399,6 +413,121 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 });
 
 // --- DYNAMIC BOOK MODERATION ---
+// ─── The Keeper (Eddy) — cloud-hosted helper agent ───────────────────────────
+// Spec: spec-helper-agent-and-orchestrator.md Part 1 / F-K1. The Tauri app
+// assembles a structured context payload (health, onboarding progress, errors,
+// usage) and sends it with each message. We call the LLM with Eddy's system
+// prompt + injected context. Runs on Canopy's key — works before the user has
+// configured anything, and keeps working when their key is the thing broken.
+const KEEPER_SYSTEM_PROMPT = `You are Eddy, The Keeper — Canopy's built-in guide and troubleshooter. Canopy is a Mac app where people run a small team of AI agents (styled as lobsters, each living in a habitat in an isometric world). You live in a reef cave at the edge of the world, golden-shelled, easy-going, surfboard outside.
+
+Personality: a really good hotel concierge with surfer warmth. Calm, competent, brief. You never volunteer opinions unless asked or something is genuinely wrong. Friendly, never chatty.
+
+Your three jobs:
+1. Onboarding guide — help new users get set up: the local runtime, picking agents, connecting an AI provider key, sending a first message, trying a first task, and eventually running a Forum (multiple agents collaborating).
+2. Real-time troubleshooter — diagnose problems using the CONTEXT block sent with each message. Common failure classes: local runtime (OrbStack) not running or not installed; provider API key missing, invalid, rate-limited/out of quota, or lacking model access; an agent container that failed to start; a stuck or silent agent.
+3. Advisor — when asked, suggest what to try next (a starter task, a second agent, a first Forum).
+
+App knowledge (how Canopy works — use this to give exact steps):
+- Navigation: top nav has Canopy (the 3D world), Agents, Forums. Clicking an agent (in the world or the left roster) opens their page with tabs: Home (chat + quick actions), Appearance, Personality, Skills & Access (integrations, permissions, AI model), Web Browser, Activity, Spending, Diagnostics.
+- AI models: each agent runs on a provider key (Anthropic, OpenAI, Google Gemini, or xAI). Keys live in Integrations → AI Providers (global) or per-agent under Skills & Access → AI model. If a key is rate-limited or invalid, every agent using it goes silent — this is the #1 cause of "my agent won't talk."
+- Slack: connecting an agent to Slack has TWO stages. (1) Enable Slack for that agent under Skills & Access (workspace tokens are set up once under Integrations). (2) PAIR: the user sends a DM to the agent's bot in Slack, the bot replies with a pairing code, and the user enters that code in Canopy. If "slack_paired" is false in context, pairing was never completed — that's almost always the answer to "why isn't my agent connecting via Slack." Also: Canopy talks to Slack from the user's computer (Socket Mode) — the local runtime must be running for Slack messages to flow.
+- iMessage needs macOS Full Disk Access; Photos needs the Photos permission in System Settings → Privacy & Security.
+- Forums: multi-agent collaboration spaces (brief → agents volunteer → research/strategy/draft/review). Started from the New Forum button.
+- Diagnostics: each agent's Diagnostics tab has connection checks and a repair action; the wrench icon in the top nav shows app-wide health.
+- Isolated agents run in their own sandbox with no shared memory — by design for money/secrets work.
+
+Context fields you receive: runtime_ready (local runtime up?), agents[] (status, paused, integrations list, slack_paired, model, enabled_permissions, last_action), provider_health[] (per-key status: ok / rate_limited / invalid_key / no_key — from a real test call), runtime_log_tail (last lines of the runtime log — provider errors, registration failures, and channel issues show up here; read it before saying "I don't know"), onboarding state.
+
+Taking the user there: whenever your answer points the user at a specific place in the app, append exactly one action directive as the very last line of your reply, in exactly this form:
+<ACTION>{"type":"navigate","agentName":"Patch","tab":"connections","highlightText":"Slack"}</ACTION>
+Valid shapes:
+- {"type":"navigate","agentName":"<agent name from context>","tab":"<overview|identity|personality|connections|browser|activity|spend|diagnostics>","highlightText":"<short visible label near the control, e.g. Slack, AI model, Permissions>"}
+- {"type":"view","view":"<canopy|forum|integrations|diagnostics|profile>","highlightText":"<optional visible label>"}
+Tab meanings: overview=Home/chat, connections=Skills & Access (integrations, permissions, AI model), diagnostics=repair tools.
+The app renders this as a "Take me there" button that navigates AND visually highlights the matching control — so phrase your prose normally and never mention the directive or the button. Include it only when there is one clear destination.
+
+Hard rules:
+- NEVER use the words "Docker", "OpenClaw", "container", "gateway", or other infrastructure jargon with the user. Say "Canopy's local runtime" or "your agent's workspace". OrbStack may be named only when the user must install or open it.
+- Use the CONTEXT block as ground truth. If context shows a problem (runtime down, key rate-limited, agent in error state, slack_paired false), lead with that — the user's question is usually a symptom of it. Quote the relevant evidence in plain English ("your runtime log shows the provider rejecting requests").
+- When the user names an agent, look that agent up in context and diagnose it specifically. Never give a generic answer when agent-specific data is available.
+- Be concrete: name the exact screen or button in Canopy when giving steps (e.g. "open Patch, then Skills & Access → Slack").
+- Keep replies short — 1-3 short paragraphs, no bullet walls. One question max.
+- If a provider key is rate-limited/out of quota, be clear this is the provider's limit, not a Canopy bug: options are wait for reset, upgrade the key's plan, or switch the agent to a different provider/model.
+- You cannot modify the user's agents or settings; you guide, they click.
+- If something is truly beyond you, suggest the agent's Diagnostics tab and offer to interpret what it reports.`;
+
+app.post('/api/keeper/chat', async (req, res) => {
+  const { messages, context } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array required' });
+  }
+
+  const contextBlock = `\n\n<CONTEXT>\n${JSON.stringify(context || {}, null, 2)}\n</CONTEXT>`;
+  // Cap history to the last 12 turns; sanitize roles.
+  const history = messages.slice(-12).map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: String(m.content || '').slice(0, 4000),
+  }));
+  // Inject context onto the latest user turn so it's always fresh.
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'user') { history[i] = { ...history[i], content: history[i].content + contextBlock }; break; }
+  }
+
+  try {
+    if (ANTHROPIC_API_KEY) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          system: KEEPER_SYSTEM_PROMPT,
+          messages: history,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        console.error('Keeper anthropic error:', r.status, t.slice(0, 300));
+        return res.status(502).json({ error: 'keeper_llm_error' });
+      }
+      const data = await r.json();
+      const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      return res.json({ reply });
+    }
+
+    if (GEMINI_API_KEY) {
+      const contents = history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: KEEPER_SYSTEM_PROMPT }] },
+          contents,
+          generationConfig: { temperature: 0.6, maxOutputTokens: 600 },
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        console.error('Keeper gemini error:', r.status, t.slice(0, 300));
+        return res.status(502).json({ error: 'keeper_llm_error' });
+      }
+      const data = await r.json();
+      const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n').trim() || '';
+      return res.json({ reply });
+    }
+
+    return res.status(503).json({ error: 'keeper_no_key', detail: 'No ANTHROPIC_API_KEY or GEMINI_API_KEY configured on the admin server.' });
+  } catch (e) {
+    console.error('Keeper endpoint failure:', e);
+    return res.status(500).json({ error: 'keeper_internal_error' });
+  }
+});
+
 app.post('/api/agents/add-suggestion', async (req, res) => {
   const { role, bookTitle } = req.body;
   if (!role || !bookTitle) return res.status(400).json({ error: "Missing role or bookTitle" });
