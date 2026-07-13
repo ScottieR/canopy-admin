@@ -7,6 +7,7 @@ import os from 'os';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
+import pg from 'pg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +81,75 @@ const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
 const RELEASES_FILE = path.join(DATA_DIR, 'releases.json');
 const RELEASES_DIR = path.join(__dirname, '../shared/public/releases');
 
+// ─── Anonymized usage telemetry (Postgres) ──────────────────────────────────
+//
+// Cross-user usage stats reported by every Canopy install that has opted in
+// (Settings > Security & Privacy > "Share Anonymized Usage Stats"). Payloads
+// carry a random per-install anon_id plus aggregate event stats only — no
+// agent id/name, no message content, nothing that identifies a person or a
+// specific agent. Full design: spec-global-usage-telemetry.md. Client side:
+// canopy/src/App.tsx (reportUsage) + canopy/src/store/worldStore.ts.
+//
+// Two ways to point this at a Postgres instance — support both so either
+// setup path in spec-global-usage-telemetry.md works unmodified:
+//
+//  1. INSTANCE_CONNECTION_NAME + DB_USER + DB_PASS + DB_NAME — Cloud Run's
+//     built-in Cloud SQL connection (`gcloud run services update
+//     --add-cloudsql-instances=...`), which mounts a Unix domain socket at
+//     /cloudsql/INSTANCE_CONNECTION_NAME. No public IP on the Cloud SQL
+//     instance required — this is Google's documented, recommended path for
+//     Cloud Run and what we recommend using.
+//  2. DATABASE_URL — a standard postgres://user:pass@host:port/db
+//     connection string, for a Cloud SQL instance with a public IP + SSL,
+//     or any other Postgres host (local dev, a different provider, etc).
+//
+// Neither is provisioned by this codebase — someone with GCP access needs to
+// create the instance and set these as Cloud Run env vars / secrets. See
+// canopy-admin/migrations/001_usage_events.sql. Until one of these is set
+// (e.g. local dev), telemetry writes are accepted but not persisted, and
+// global stats come back empty rather than crashing the server.
+let pgPool = null;
+if (process.env.INSTANCE_CONNECTION_NAME && process.env.DB_USER && process.env.DB_PASS && process.env.DB_NAME) {
+  pgPool = new pg.Pool({
+    host: `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+  });
+} else if (process.env.DATABASE_URL) {
+  pgPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+}
+if (pgPool) {
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id            BIGSERIAL PRIMARY KEY,
+      anon_id       TEXT NOT NULL,
+      event_type    TEXT NOT NULL,
+      provider      TEXT,
+      model_version TEXT,
+      persona_role  TEXT,
+      tokens_in     BIGINT NOT NULL DEFAULT 0,
+      tokens_out    BIGINT NOT NULL DEFAULT 0,
+      cost_usd      NUMERIC NOT NULL DEFAULT 0,
+      properties    JSONB,
+      event_ts      TIMESTAMPTZ NOT NULL,
+      received_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS usage_events_event_ts_idx ON usage_events (event_ts);
+    CREATE INDEX IF NOT EXISTS usage_events_provider_idx ON usage_events (provider);
+    CREATE INDEX IF NOT EXISTS usage_events_persona_role_idx ON usage_events (persona_role);
+    CREATE INDEX IF NOT EXISTS usage_events_event_type_idx ON usage_events (event_type);
+    CREATE INDEX IF NOT EXISTS usage_events_anon_id_idx ON usage_events (anon_id);
+    -- properties JSONB may not exist on tables created before this column was
+    -- added; ADD COLUMN IF NOT EXISTS makes this migration idempotent for
+    -- already-running installs (CREATE TABLE IF NOT EXISTS above is a no-op
+    -- once the table exists, so the column needs its own guarded add).
+    ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS properties JSONB;
+  `).catch(e => console.error("[TELEMETRY] Failed to ensure usage_events table:", e.message));
+} else {
+  console.warn("[TELEMETRY] No Postgres connection configured (set INSTANCE_CONNECTION_NAME+DB_USER+DB_PASS+DB_NAME, or DATABASE_URL) — /api/telemetry/event will accept but not persist events, and global usage stats will be empty. See spec-global-usage-telemetry.md.");
+}
+
 // Make sure the on-disk shape exists before any request races against it.
 // `releases.json` is the source of truth for the in-app updater — when a
 // new build is published we write a row in here and Tauri clients pick it
@@ -117,7 +187,10 @@ app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
     console.log(`[Auth Middleware] Intercepted ${req.method} ${req.path}`);
     // Whitelist endpoints that are meant for public client telemetry/ingress
-    const whitelistedPaths = ['/api/usage', '/api/generate', '/api/agents/add-suggestion'];
+    // /api/telemetry/event: client apps POST anonymized usage events here with
+    // no admin key (they're not admin operations) — must stay whitelisted or
+    // every event 401s silently the moment ADMIN_API_KEY is set in prod.
+    const whitelistedPaths = ['/api/usage', '/api/generate', '/api/agents/add-suggestion', '/api/telemetry/event'];
     
     // Some paths might come with trailing slashes, so normalize it
     const normalizedPath = req.path.replace(/\/+$/, '') || '/';
@@ -732,13 +805,342 @@ function getRealStats() {
   }
 }
 
-app.get('/api/stats', (req, res) => {
-  const real = getRealStats();
-  if (real) return res.json(real);
+// Cross-user global usage stats — the query behind this, getGlobalStats(),
+// is defined further down (near the usage_events table) but hoisting makes
+// it safe to call from here regardless of declaration order.
+async function getGlobalStats() {
+  if (!pgPool) return null;
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  // If we get here, DB is missing or failed - return empty real structure
+    const dailyRows = await pgPool.query(`
+      SELECT to_char(date_trunc('day', event_ts), 'Dy') as day,
+             date_trunc('day', event_ts) as day_start,
+             COALESCE(provider, 'other') as provider,
+             SUM(tokens_in + tokens_out) as tokens
+      FROM usage_events
+      WHERE event_ts >= $1
+      GROUP BY day_start, day, provider
+      ORDER BY day_start ASC
+    `, [sevenDaysAgo]);
+
+    const byDay = {};
+    for (const row of dailyRows.rows) {
+      const key = row.day_start.toISOString().split('T')[0];
+      if (!byDay[key]) byDay[key] = { day: row.day.trim(), google: 0, openai: 0, anthropic: 0, xai: 0, other: 0 };
+      const prov = ['google', 'openai', 'anthropic', 'xai'].includes(row.provider) ? row.provider : 'other';
+      byDay[key][prov] += parseInt(row.tokens, 10) || 0;
+    }
+    const tokenUsageData = Object.keys(byDay).sort().map(k => byDay[k]);
+
+    const totalsRow = (await pgPool.query(`
+      SELECT COUNT(DISTINCT anon_id) as install_count,
+             COALESCE(SUM(tokens_in + tokens_out), 0) as total_tokens,
+             COALESCE(SUM(cost_usd), 0) as total_cost_usd
+      FROM usage_events
+      WHERE event_ts >= $1
+    `, [sevenDaysAgo])).rows[0];
+
+    const activeInstallsTodayRow = (await pgPool.query(`
+      SELECT COUNT(DISTINCT anon_id) as count
+      FROM usage_events
+      WHERE event_ts >= date_trunc('day', now())
+    `)).rows[0];
+
+    const byProviderRows = (await pgPool.query(`
+      SELECT COALESCE(provider, 'other') as provider,
+             COALESCE(SUM(tokens_in + tokens_out), 0) as tokens,
+             COALESCE(SUM(cost_usd), 0) as cost_usd
+      FROM usage_events
+      WHERE event_ts >= $1
+      GROUP BY provider
+      ORDER BY cost_usd DESC
+    `, [sevenDaysAgo])).rows;
+
+    const byPersonaRows = (await pgPool.query(`
+      SELECT COALESCE(persona_role, 'custom') as persona_role,
+             COUNT(*) as event_count,
+             COALESCE(SUM(tokens_in + tokens_out), 0) as tokens,
+             COALESCE(SUM(cost_usd), 0) as cost_usd
+      FROM usage_events
+      WHERE event_ts >= $1
+      GROUP BY persona_role
+      ORDER BY cost_usd DESC
+    `, [sevenDaysAgo])).rows;
+
+    const byModelRows = (await pgPool.query(`
+      SELECT COALESCE(provider, 'other') as provider,
+             COALESCE(model_version, 'unknown') as model_version,
+             COUNT(*) as event_count,
+             COALESCE(SUM(tokens_in + tokens_out), 0) as tokens,
+             COALESCE(SUM(cost_usd), 0) as cost_usd
+      FROM usage_events
+      WHERE event_ts >= $1
+      GROUP BY provider, model_version
+      ORDER BY cost_usd DESC
+      LIMIT 50
+    `, [sevenDaysAgo])).rows;
+
+    return {
+      source: "global",
+      activeAgentsDaily: parseInt(activeInstallsTodayRow?.count || 0, 10),
+      installCount: parseInt(totalsRow?.install_count || 0, 10),
+      totalTokens: parseInt(totalsRow?.total_tokens || 0, 10),
+      totalCostUsd: parseFloat(totalsRow?.total_cost_usd || 0),
+      tokenUsageData,
+      personaAdoptionData: {
+        usage: byPersonaRows.map(r => ({ name: r.persona_role, count: parseInt(r.event_count, 10) || 0 })),
+        downloads: []
+      },
+      costByProvider: byProviderRows.map(r => ({ provider: r.provider, tokens: parseInt(r.tokens, 10) || 0, costUsd: parseFloat(r.cost_usd) || 0 })),
+      costByPersona: byPersonaRows.map(r => ({ personaRole: r.persona_role, tokens: parseInt(r.tokens, 10) || 0, costUsd: parseFloat(r.cost_usd) || 0, eventCount: parseInt(r.event_count, 10) || 0 })),
+      costByModel: byModelRows.map(r => ({ provider: r.provider, modelVersion: r.model_version, tokens: parseInt(r.tokens, 10) || 0, costUsd: parseFloat(r.cost_usd) || 0, eventCount: parseInt(r.event_count, 10) || 0 })),
+      lastSync: new Date().toISOString()
+    };
+  } catch (e) {
+    console.error("[TELEMETRY] Failed to query global stats:", e.message);
+    return null;
+  }
+}
+
+// Onboarding funnel / step drop-off — powers a "where do people quit
+// onboarding" view in the admin Dashboard. Reads the fire-once activation
+// (A0-A3) and onboarding_step_reached_* events written by
+// canopy/src/store/worldStore.ts's fireActivationEvent(). See
+// spec-global-usage-telemetry.md and spec-onboarding-activation.md (if present)
+// for the A0-A3 definitions.
+const ACTIVATION_FUNNEL_ORDER = [
+  { eventType: 'activation_a0_deployed', label: 'A0 — Agent deployed' },
+  { eventType: 'activation_a1_first_reply', label: 'A1 — First reply' },
+  { eventType: 'activation_a2_first_deliverable', label: 'A2 — First deliverable (aha)' },
+  { eventType: 'activation_a3_first_forum', label: 'A3 — First forum' },
+];
+
+async function getFunnelStats() {
+  if (!pgPool) return null;
+  try {
+    const activationRows = (await pgPool.query(`
+      SELECT event_type, COUNT(DISTINCT anon_id) as anon_count
+      FROM usage_events
+      WHERE event_type = ANY($1)
+      GROUP BY event_type
+    `, [ACTIVATION_FUNNEL_ORDER.map(a => a.eventType)])).rows;
+    const activationByType = Object.fromEntries(activationRows.map(r => [r.event_type, parseInt(r.anon_count, 10) || 0]));
+
+    const stepRows = (await pgPool.query(`
+      SELECT event_type,
+             (properties->>'step') as step,
+             (properties->>'step_name') as step_name,
+             COUNT(DISTINCT anon_id) as anon_count
+      FROM usage_events
+      WHERE event_type LIKE 'onboarding_step_reached_%'
+      GROUP BY event_type, properties->>'step', properties->>'step_name'
+    `)).rows;
+
+    const companionRow = (await pgPool.query(`
+      SELECT COUNT(DISTINCT anon_id) as anon_count, COUNT(*) as event_count
+      FROM usage_events WHERE event_type = 'companion_paired'
+    `)).rows[0];
+
+    return {
+      activation: ACTIVATION_FUNNEL_ORDER.map(a => ({ ...a, anonCount: activationByType[a.eventType] || 0 })),
+      onboardingSteps: stepRows
+        .map(r => ({
+          eventType: r.event_type,
+          step: r.step !== null ? parseFloat(r.step) : null,
+          stepName: r.step_name || r.event_type.replace('onboarding_step_reached_', ''),
+          anonCount: parseInt(r.anon_count, 10) || 0,
+        }))
+        .sort((a, b) => (a.step ?? 0) - (b.step ?? 0)),
+      companionPairing: {
+        anonCount: parseInt(companionRow?.anon_count || 0, 10),
+        eventCount: parseInt(companionRow?.event_count || 0, 10),
+      },
+    };
+  } catch (e) {
+    console.error("[TELEMETRY] Failed to query funnel stats:", e.message);
+    return null;
+  }
+}
+
+app.get('/api/stats/funnel', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: "Global usage database not configured" });
+  const funnel = await getFunnelStats();
+  if (!funnel) return res.status(503).json({ error: "Failed to query funnel stats" });
+  res.json(funnel);
+});
+
+// DAU/MAU + cohort retention (daily D0-D30, monthly M0-M6). Activity signal
+// is "any usage_events row for this anon_id" — every install already emits an
+// event_type: "usage_report" heartbeat roughly every 60s while the app is
+// open (canopy/src/App.tsx's reportUsage), so this works with zero additional
+// client instrumentation. Retention here is the classic "Day-N" / "Month-N"
+// definition (active on exactly that day/month after first use), not rolling
+// retention — see spec-global-usage-telemetry.md for the tradeoff.
+const DAILY_RETENTION_CHECKPOINTS = [0, 1, 3, 7, 14, 30];
+const MONTHLY_RETENTION_CHECKPOINTS = [0, 1, 2, 3, 6];
+
+async function getRetentionStats() {
+  if (!pgPool) return null;
+  try {
+    const dauMauRows = (await pgPool.query(`
+      WITH days AS (
+        SELECT generate_series(date_trunc('day', now()) - interval '59 days', date_trunc('day', now()), interval '1 day') as day
+      )
+      SELECT to_char(d.day, 'YYYY-MM-DD') as date,
+             (SELECT COUNT(DISTINCT anon_id) FROM usage_events e WHERE e.event_ts >= d.day AND e.event_ts < d.day + interval '1 day') as dau,
+             (SELECT COUNT(DISTINCT anon_id) FROM usage_events e WHERE e.event_ts >= d.day - interval '29 days' AND e.event_ts < d.day + interval '1 day') as mau
+      FROM days d
+      ORDER BY d.day
+    `)).rows;
+
+    const dauMauSeries = dauMauRows.map(r => {
+      const dau = parseInt(r.dau, 10) || 0;
+      const mau = parseInt(r.mau, 10) || 0;
+      return { date: r.date, dau, mau, ratio: mau > 0 ? dau / mau : 0 };
+    });
+
+    // Daily cohort retention. Only look back 90 days of cohorts — anything
+    // older doesn't move the "is retention healthy right now" needle and it
+    // keeps the join cheap.
+    const dailyCohortRows = (await pgPool.query(`
+      WITH first_seen AS (
+        SELECT anon_id, date_trunc('day', MIN(event_ts)) as cohort_day
+        FROM usage_events GROUP BY anon_id
+      ),
+      eligible AS (
+        SELECT * FROM first_seen WHERE cohort_day >= now() - interval '90 days'
+      ),
+      activity AS (
+        SELECT DISTINCT anon_id, date_trunc('day', event_ts) as active_day FROM usage_events
+      )
+      SELECT e.cohort_day,
+             EXTRACT(DAY FROM (a.active_day - e.cohort_day))::int as day_offset,
+             COUNT(DISTINCT e.anon_id) as retained
+      FROM eligible e
+      JOIN activity a ON a.anon_id = e.anon_id AND a.active_day >= e.cohort_day
+      GROUP BY e.cohort_day, day_offset
+    `)).rows;
+
+    const dailyCohortSizes = {};
+    for (const row of (await pgPool.query(`
+      SELECT date_trunc('day', first_event) as cohort_day, COUNT(*) as cohort_size
+      FROM (SELECT anon_id, MIN(event_ts) as first_event FROM usage_events GROUP BY anon_id) fs
+      WHERE date_trunc('day', first_event) >= now() - interval '90 days'
+      GROUP BY cohort_day
+    `)).rows) {
+      dailyCohortSizes[row.cohort_day.toISOString()] = parseInt(row.cohort_size, 10) || 0;
+    }
+
+    const dailyRetention = DAILY_RETENTION_CHECKPOINTS.map(offset => {
+      let retained = 0;
+      for (const row of dailyCohortRows) {
+        if (parseInt(row.day_offset, 10) !== offset) continue;
+        const cohortAgeDays = (Date.now() - row.cohort_day.getTime()) / 86400000;
+        if (cohortAgeDays < offset) continue; // cohort hasn't reached this checkpoint yet
+        retained += parseInt(row.retained, 10) || 0;
+      }
+      // Denominator is every eligible cohort's full size (including cohorts
+      // with zero retained users at this offset), not just cohorts that show
+      // up in dailyCohortRows.
+      let eligibleCohortTotal = 0;
+      for (const [cohortIso, size] of Object.entries(dailyCohortSizes)) {
+        const cohortAgeDays = (Date.now() - new Date(cohortIso).getTime()) / 86400000;
+        if (cohortAgeDays >= offset) eligibleCohortTotal += size;
+      }
+      return {
+        offset,
+        label: `D${offset}`,
+        retainedCount: retained,
+        cohortSize: eligibleCohortTotal,
+        retentionPct: eligibleCohortTotal > 0 ? (retained / eligibleCohortTotal) * 100 : null,
+      };
+    });
+
+    // Monthly cohort retention — same idea, bucketed by calendar month, 12
+    // months of cohort lookback.
+    const monthlyCohortRows = (await pgPool.query(`
+      WITH first_seen AS (
+        SELECT anon_id, date_trunc('month', MIN(event_ts)) as cohort_month
+        FROM usage_events GROUP BY anon_id
+      ),
+      eligible AS (
+        SELECT * FROM first_seen WHERE cohort_month >= date_trunc('month', now()) - interval '12 months'
+      ),
+      activity AS (
+        SELECT DISTINCT anon_id, date_trunc('month', event_ts) as active_month FROM usage_events
+      )
+      SELECT e.cohort_month,
+             (EXTRACT(YEAR FROM age(a.active_month, e.cohort_month)) * 12 + EXTRACT(MONTH FROM age(a.active_month, e.cohort_month)))::int as month_offset,
+             COUNT(DISTINCT e.anon_id) as retained
+      FROM eligible e
+      JOIN activity a ON a.anon_id = e.anon_id AND a.active_month >= e.cohort_month
+      GROUP BY e.cohort_month, month_offset
+    `)).rows;
+
+    const monthlyCohortSizes = {};
+    for (const row of (await pgPool.query(`
+      SELECT date_trunc('month', first_event) as cohort_month, COUNT(*) as cohort_size
+      FROM (SELECT anon_id, MIN(event_ts) as first_event FROM usage_events GROUP BY anon_id) fs
+      WHERE date_trunc('month', first_event) >= date_trunc('month', now()) - interval '12 months'
+      GROUP BY cohort_month
+    `)).rows) {
+      monthlyCohortSizes[row.cohort_month.toISOString()] = parseInt(row.cohort_size, 10) || 0;
+    }
+
+    const monthlyRetention = MONTHLY_RETENTION_CHECKPOINTS.map(offset => {
+      let retained = 0;
+      for (const row of monthlyCohortRows) {
+        if (parseInt(row.month_offset, 10) !== offset) continue;
+        retained += parseInt(row.retained, 10) || 0;
+      }
+      let eligibleCohortTotal = 0;
+      for (const [cohortIso, size] of Object.entries(monthlyCohortSizes)) {
+        const cohortAgeMonths = (Date.now() - new Date(cohortIso).getTime()) / (30.44 * 86400000);
+        if (cohortAgeMonths >= offset) eligibleCohortTotal += size;
+      }
+      return {
+        offset,
+        label: `M${offset}`,
+        retainedCount: retained,
+        cohortSize: eligibleCohortTotal,
+        retentionPct: eligibleCohortTotal > 0 ? (retained / eligibleCohortTotal) * 100 : null,
+      };
+    });
+
+    return { dauMauSeries, dailyRetention, monthlyRetention };
+  } catch (e) {
+    console.error("[TELEMETRY] Failed to query retention stats:", e.message);
+    return null;
+  }
+}
+
+app.get('/api/stats/retention', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: "Global usage database not configured" });
+  const retention = await getRetentionStats();
+  if (!retention) return res.status(503).json({ error: "Failed to query retention stats" });
+  res.json(retention);
+});
+
+app.get('/api/stats', async (req, res) => {
+  // Prefer real cross-user global stats (Postgres) when DATABASE_URL is
+  // configured — this is what powers the deployed admin dashboard. Falls
+  // back to the single-machine local debug path (getRealStats(), which reads
+  // the local Canopy sqlite db at ~/Library/Application Support/Canopy) when
+  // no DATABASE_URL is set — e.g. running canopy-admin locally next to your
+  // own Canopy install.
+  if (pgPool) {
+    const global = await getGlobalStats();
+    if (global) return res.json(global);
+  }
+
+  const real = getRealStats();
+  if (real) return res.json({ source: "local", ...real });
+
   res.status(503).json({
-    error: "Canopy database unreachable",
+    error: pgPool
+      ? "Global usage database unreachable"
+      : "No usage data available — set DATABASE_URL for global cross-user stats, or run canopy-admin locally next to a Canopy install for local-machine stats.",
     tokenUsageData: [],
     personaAdoptionData: { usage: [], downloads: [] }
   });
@@ -895,6 +1297,62 @@ app.delete('/api/releases/:version', (req, res) => {
   res.json({ success: true, latest: data.latest });
 });
 
+// Anonymized cross-user telemetry (Option A — see spec-global-usage-telemetry.md).
+// This is the collection endpoint that powers the "Global Usage" breakdown in
+// the admin Dashboard. It intentionally does not accept an agent id, agent
+// name, or any other user-identifiable field — only a random anon_id plus
+// aggregate stats for one usage event.
+app.post('/api/telemetry/event', (req, res) => {
+  const { anon_id, event_type, provider, model_version, persona_role, tokens_in, tokens_out, cost_usd, properties, timestamp } = req.body || {};
+
+  if (!anon_id || typeof anon_id !== 'string' || anon_id.length > 128) {
+    return res.status(400).json({ error: "anon_id is required" });
+  }
+  if (!event_type || typeof event_type !== 'string' || event_type.length > 64) {
+    return res.status(400).json({ error: "event_type is required" });
+  }
+
+  const resolvedProvider = (typeof provider === 'string' && provider) || getProvider(model_version);
+  const eventTs = timestamp && !isNaN(Date.parse(timestamp)) ? new Date(timestamp) : new Date();
+  // properties: small, non-identifying event metadata only (onboarding step
+  // number/name, companion pairing profileType/experience/deviceName, etc).
+  // Never message content, names, or other PII — enforced by convention on
+  // the client side, not re-validated here beyond "is it a plain object".
+  const resolvedProperties = (properties && typeof properties === 'object' && !Array.isArray(properties)) ? properties : null;
+
+  if (!pgPool) {
+    // No DATABASE_URL configured — accept so the client doesn't error/retry,
+    // but there's nowhere to persist it yet.
+    return res.json({ success: true, persisted: false });
+  }
+
+  pgPool.query(
+    `INSERT INTO usage_events (anon_id, event_type, provider, model_version, persona_role, tokens_in, tokens_out, cost_usd, properties, event_ts)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      anon_id,
+      event_type,
+      resolvedProvider,
+      typeof model_version === 'string' ? model_version : null,
+      typeof persona_role === 'string' && persona_role ? persona_role : 'custom',
+      Number(tokens_in) || 0,
+      Number(tokens_out) || 0,
+      Number(cost_usd) || 0,
+      resolvedProperties ? JSON.stringify(resolvedProperties) : null,
+      eventTs
+    ]
+  ).then(() => res.json({ success: true, persisted: true }))
+   .catch(e => {
+     console.error("[TELEMETRY] Failed to insert usage event:", e.message);
+     res.status(500).json({ error: "Failed to persist event" });
+   });
+});
+
+// Legacy single-install debug endpoint — writes to the flat shared/stats.json
+// file, read back only by getRealStats()'s local-sqlite debug path below.
+// Superseded by POST /api/telemetry/event for cross-user aggregation; left
+// in place since it's harmless and still useful for local single-machine
+// debugging of canopy-admin next to a local Canopy install.
 app.post('/api/usage', (req, res) => {
   const { agentId, role, tokensIn, tokensOut, messagesHandled, tasksToday } = req.body;
   if (!agentId) return res.status(400).json({ error: "agentId is required" });
@@ -932,62 +1390,15 @@ app.post('/api/usage', (req, res) => {
   }
 });
 
-app.get('/api/stats', (req, res) => {
-  try {
-    if (!fs.existsSync(STATS_FILE)) return res.json({ tokenUsageData: [], personaAdoptionData: { usage: [], downloads: [] }, activeAgentsDaily: 0 });
-
-    const rawStats = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
-    const agents = fs.existsSync(AGENTS_FILE) ? JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8')) : {};
-
-    // Aggregate data
-    const agentIds = Object.keys(rawStats);
-    const activeAgentsDaily = agentIds.length;
-
-    // Build persona adoption (by usage count)
-    const personaUsage = {};
-    let totalIn = 0;
-    let totalOut = 0;
-
-    agentIds.forEach(id => {
-      const s = rawStats[id];
-      const role = s.role || agents[id]?.description || "Unknown";
-      personaUsage[role] = (personaUsage[role] || 0) + (s.messages_handled || 0);
-      totalIn += s.total_tokens_in || 0;
-      totalOut += s.total_tokens_out || 0;
-    });
-
-    const personaAdoptionData = {
-      usage: Object.entries(personaUsage).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
-      downloads: Object.entries(agents).map(([id, a]) => ({ name: a.description || id, count: 1 })).slice(0, 5) // Mock downloads for now
-    };
-
-    // Build token usage (mock historical for UI vibe, using real totals for the last point)
-    const tokenUsageData = [
-      { day: 'Start', google: 0, openai: 0, anthropic: 0, xai: 0, other: 0 },
-      {
-        day: new Date().toLocaleDateString('en-US', { weekday: 'short' }),
-        google: Math.floor(totalOut * 0.4),
-        openai: Math.floor(totalOut * 0.3),
-        anthropic: Math.floor(totalOut * 0.2),
-        xai: Math.floor(totalOut * 0.05),
-        other: Math.floor(totalOut * 0.05)
-      }
-    ];
-
-    res.json({
-      tokenUsageData,
-      personaAdoptionData,
-      activeAgentsDaily,
-      totalAgentsCreated: activeAgentsDaily,
-      totalAgentsActive: activeAgentsDaily,
-      lastSync: new Date().toISOString()
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
+// NOTE: there used to be a second `app.get('/api/stats', ...)` handler here
+// that read the flat shared/stats.json file (written by the legacy
+// POST /api/usage endpoint above). Express only ever dispatches to the first
+// matching route, so this second handler was dead code — it never ran, in
+// dev or in production — while the real Cloud Run deployment's /api/stats
+// (the one that runs) was falling through to getRealStats()'s hardcoded
+// macOS-only sqlite path and 503ing. Removed in favor of getGlobalStats()
+// above, which is now the one and only /api/stats handler's primary path.
+// See spec-global-usage-telemetry.md for the full writeup of this bug.
 
 // --- BACKGROUND PRICING & MODELS CRON ---
 async function syncPricingAndModels() {

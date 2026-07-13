@@ -1,16 +1,47 @@
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, AreaChart, Area, LineChart, Line, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { motion } from 'framer-motion';
-import { Users, Zap, BrainCircuit, Activity } from 'lucide-react';
+import { Users, Zap, BrainCircuit, Activity, DollarSign, TrendingUp, GitBranch } from 'lucide-react';
+
+// Retention/stickiness "healthy" reference lines. Canopy is closest to the
+// "productivity app" category (workflow/agent-management tool used
+// repeatedly, not a one-off utility). Sourced July 2026:
+//  - Day-1/Day-30 productivity-app retention: Business of Apps, "App
+//    Retention Rates (2026)" — https://www.businessofapps.com/data/app-retention-rates/
+//    (productivity apps: ~17.1% D1, ~4.1% D30 category average; >6% D30 is
+//    above-average, >10% D30 signals strong product-market fit).
+//  - Day-7: no productivity-specific figure is published; using the
+//    cross-category benchmark (~13%) as an approximate reference only.
+//  - DAU/MAU stickiness: usedaymark.io "Product Stickiness (DAU/MAU Ratio)"
+//    and Mixpanel's MAU benchmarks piece — SaaS average ~13%, >20% is
+//    healthy for most SaaS, consumer productivity tools (Notion/Todoist-like)
+//    target 30-40%.
+// These are directional targets, not hard pass/fail lines — a young product's
+// own week-over-week trend matters more than matching someone else's curve.
+const DAILY_RETENTION_BENCHMARKS: Record<number, { healthy: number; avg: number; note?: string }> = {
+  1: { healthy: 25, avg: 17.1 },
+  7: { healthy: 20, avg: 13, note: 'cross-category reference — no productivity-specific D7 figure is published' },
+  30: { healthy: 10, avg: 4.1 },
+};
+const MONTHLY_RETENTION_BENCHMARKS: Record<number, { healthy: number; avg: number; note?: string }> = {
+  1: { healthy: 10, avg: 4.1, note: 'approximated from the D30 productivity benchmark — no published M1 figure' },
+};
+const STICKINESS_BENCHMARK = { needsWork: 13, healthy: 20, great: 30 };
 
 export default function Dashboard() {
   const [stats, setStats] = useState<any>({
     tokenUsageData: [],
     personaAdoptionData: { usage: [], downloads: [] },
-    activeAgentsDaily: 0
+    activeAgentsDaily: 0,
+    totalCostUsd: 0,
+    installCount: 0,
+    costByProvider: []
   });
   const [agents, setAgents] = useState<any>({});
   const [popularityMetric, setPopularityMetric] = useState<'usage' | 'downloads'>('usage');
+  const [funnel, setFunnel] = useState<any>(null);
+  const [retention, setRetention] = useState<any>(null);
+  const [dauMauWindow, setDauMauWindow] = useState<7 | 30 | 60>(30);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -20,10 +51,16 @@ export default function Dashboard() {
         if (!r.ok) throw new Error("Canopy DB Unreachable");
         return r.json();
       }),
-      fetch('/api/agents').then(r => r.json())
-    ]).then(([statsData, agentsData]) => {
+      fetch('/api/agents').then(r => r.json()),
+      // Funnel/retention are only meaningful once a global (Postgres) DB is
+      // configured — 503 otherwise. Treat that as "no data yet", not an error.
+      fetch('/api/stats/funnel').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/stats/retention').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([statsData, agentsData, funnelData, retentionData]) => {
       setStats(statsData);
       setAgents(agentsData);
+      setFunnel(funnelData);
+      setRetention(retentionData);
       setError(null);
     }).catch(err => {
       console.error("Could not fetch dashboard data", err);
@@ -72,10 +109,14 @@ export default function Dashboard() {
           <div className="flex items-center gap-3 mb-2">
             <h1 className="text-4xl font-extrabold tracking-tight text-textMain">Platform Overview</h1>
             <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest ${error ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-              {error ? 'Offline' : 'Live Database'}
+              {error ? 'Offline' : (stats.source === 'global' ? 'Live — Global (Anonymized)' : 'Live Database')}
             </div>
           </div>
-          <p className="text-textMuted font-medium text-lg">Real-time usage telemetry from your local Canopy installation.</p>
+          <p className="text-textMuted font-medium text-lg">
+            {stats.source === 'global'
+              ? `Anonymized usage across ${(stats.installCount || 0).toLocaleString()} opted-in installs, last 7 days. No user or agent identifiers included.`
+              : 'Real-time usage telemetry from your local Canopy installation.'}
+          </p>
         </div>
         {stats.lastSync && (
           <div className="text-right">
@@ -93,10 +134,21 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard icon={Users} label="Total Agents Active" value={(stats.totalAgentsActive || 0).toString()} info={`${stats.totalAgentsCreated || 0} total created`} />
-        <MetricCard icon={Activity} label="Active Agents / Day" value={activeAgentsCount.toLocaleString()} />
-        <MetricCard icon={Zap} label="Tokens (Last 24h)" value={avgTokens} />
-        <MetricCard icon={BrainCircuit} label="Top Persona" value={personaAdoptionData[0]?.name || 'None'} />
+        {stats.source === 'global' ? (
+          <>
+            <MetricCard icon={Users} label="Installs Reporting" value={(stats.installCount || 0).toLocaleString()} info="opted-in, last 7 days" />
+            <MetricCard icon={Activity} label="Active Installs / Day" value={activeAgentsCount.toLocaleString()} />
+            <MetricCard icon={Zap} label="Tokens (Last 7d)" value={formatTokens(stats.totalTokens || 0)} />
+            <MetricCard icon={DollarSign} label="Cost (Last 7d)" value={`$${(stats.totalCostUsd || 0).toFixed(2)}`} />
+          </>
+        ) : (
+          <>
+            <MetricCard icon={Users} label="Total Agents Active" value={(stats.totalAgentsActive || 0).toString()} info={`${stats.totalAgentsCreated || 0} total created`} />
+            <MetricCard icon={Activity} label="Active Agents / Day" value={activeAgentsCount.toLocaleString()} />
+            <MetricCard icon={Zap} label="Tokens (Last 24h)" value={avgTokens} />
+            <MetricCard icon={BrainCircuit} label="Top Persona" value={personaAdoptionData[0]?.name || 'None'} />
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -181,7 +233,216 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {stats.source === 'global' && (stats.costByProvider || []).length > 0 && (
+        <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-bold text-textMain">Cost &amp; Tokens by Provider</h3>
+            <p className="text-xs text-textMuted font-medium">Last 7 days, anonymized</p>
+          </div>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.costByProvider} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(33,131,128,0.1)" />
+                <XAxis dataKey="provider" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 600 }} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 13, fontWeight: 500 }} tickFormatter={(v) => `$${v}`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
+                  formatter={(value: number, name: string) => name === 'costUsd' ? [`$${value.toFixed(2)}`, 'Cost'] : [value.toLocaleString(), 'Tokens']}
+                />
+                <Bar dataKey="costUsd" fill="#218380" radius={[6, 6, 0, 0]} barSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {funnel && (
+        <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-2">
+              <GitBranch size={20} className="text-primary" />
+              <h3 className="text-xl font-bold text-textMain">Onboarding Funnel</h3>
+            </div>
+            <p className="text-xs text-textMuted font-medium">Distinct installs reaching each milestone, all-time</p>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  layout="vertical"
+                  data={(funnel.activation || []).map((a: any, i: number, arr: any[]) => ({
+                    ...a,
+                    dropOffPct: i === 0 || !arr[0].anonCount ? null : (a.anonCount / arr[0].anonCount) * 100,
+                  }))}
+                  margin={{ top: 0, right: 30, left: 10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="rgba(33,131,128,0.1)" />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="label" type="category" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 12, fontWeight: 600 }} width={170} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(33,131,128,0.05)' }}
+                    contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
+                    formatter={(value: number, name: string, entry: any) => name === 'anonCount'
+                      ? [`${value.toLocaleString()} installs${entry.payload.dropOffPct !== null ? ` (${entry.payload.dropOffPct.toFixed(0)}% of A0)` : ''}`, 'Reached']
+                      : [value, name]}
+                  />
+                  <Bar dataKey="anonCount" fill="#218380" radius={[0, 6, 6, 0]} barSize={22} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-textMuted uppercase tracking-wide mb-3">Step-by-step drop-off</p>
+              <div className="space-y-1.5 max-h-64 overflow-auto pr-2">
+                {(funnel.onboardingSteps || []).length === 0 && (
+                  <p className="text-sm text-textMuted">No step data yet.</p>
+                )}
+                {(funnel.onboardingSteps || []).map((s: any, i: number, arr: any[]) => {
+                  const prevCount = i > 0 ? arr[i - 1].anonCount : s.anonCount;
+                  const retainedPct = prevCount > 0 ? (s.anonCount / prevCount) * 100 : 100;
+                  return (
+                    <div key={s.eventType} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F0EAE0]">
+                      <span className="font-medium text-textMain">{s.step != null ? `Step ${s.step}` : ''} · {s.stepName}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-textMain">{s.anonCount.toLocaleString()}</span>
+                        {i > 0 && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${retainedPct >= 80 ? 'bg-green-50 text-green-600' : retainedPct >= 50 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>
+                            {retainedPct.toFixed(0)}%
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {funnel.companionPairing && funnel.companionPairing.eventCount > 0 && (
+                <p className="text-xs text-textMuted mt-4">
+                  Companion/mobile pairing: {funnel.companionPairing.anonCount.toLocaleString()} installs, {funnel.companionPairing.eventCount.toLocaleString()} devices paired.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {retention && (
+        <div className="space-y-8">
+          <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={20} className="text-primary" />
+                <h3 className="text-xl font-bold text-textMain">DAU / MAU &amp; Stickiness</h3>
+              </div>
+              <div className="flex bg-backgroundAlt p-1 rounded-xl border border-border">
+                {[7, 30, 60].map(w => (
+                  <button
+                    key={w}
+                    onClick={() => setDauMauWindow(w as 7 | 30 | 60)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${dauMauWindow === w ? 'bg-white shadow-sm text-primary' : 'text-textMuted hover:text-textMain'}`}
+                  >
+                    {w}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            {(() => {
+              const series = (retention.dauMauSeries || []).slice(-dauMauWindow);
+              const latest = series[series.length - 1];
+              const stickinessPct = latest ? latest.ratio * 100 : 0;
+              const band = stickinessPct >= STICKINESS_BENCHMARK.great ? 'Great (top-tier productivity app)'
+                : stickinessPct >= STICKINESS_BENCHMARK.healthy ? 'Healthy'
+                : stickinessPct >= STICKINESS_BENCHMARK.needsWork ? 'Around SaaS average'
+                : 'Below SaaS average';
+              const bandColor = stickinessPct >= STICKINESS_BENCHMARK.healthy ? 'text-green-600' : stickinessPct >= STICKINESS_BENCHMARK.needsWork ? 'text-amber-600' : 'text-red-600';
+              return (
+                <>
+                  <div className="flex items-baseline gap-3 mb-6">
+                    <span className="text-3xl font-extrabold text-textMain">{stickinessPct.toFixed(1)}%</span>
+                    <span className={`text-sm font-bold ${bandColor}`}>{band}</span>
+                    <span className="text-xs text-textMuted">today's DAU/MAU</span>
+                  </div>
+                  <div className="h-64 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(33,131,128,0.1)" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 11, fontWeight: 500 }} minTickGap={30} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 12, fontWeight: 500 }} />
+                        <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }} />
+                        <Legend wrapperStyle={{ fontSize: 12, fontWeight: 600 }} />
+                        <Line type="monotone" dataKey="dau" name="DAU" stroke="#218380" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="mau" name="MAU" stroke="#94A3B8" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <RetentionCurveCard
+              title="Daily Retention (D0–D30)"
+              data={retention.dailyRetention}
+              benchmarks={DAILY_RETENTION_BENCHMARKS}
+              checkpointKey="offset"
+            />
+            <RetentionCurveCard
+              title="Monthly Retention (M0–M6)"
+              data={retention.monthlyRetention}
+              benchmarks={MONTHLY_RETENTION_BENCHMARKS}
+              checkpointKey="offset"
+            />
+          </div>
+
+          <p className="text-[11px] text-textMuted leading-relaxed">
+            Benchmarks are directional references for a productivity/workflow-tool app, current as of July 2026:{' '}
+            <a href="https://www.businessofapps.com/data/app-retention-rates/" target="_blank" rel="noreferrer" className="underline hover:text-textMain">Business of Apps, App Retention Rates (2026)</a>{' '}
+            and{' '}
+            <a href="https://www.usedaymark.io/metrics/dau-mau-stickiness" target="_blank" rel="noreferrer" className="underline hover:text-textMain">usedaymark.io, DAU/MAU Stickiness</a>.
+            Your own week-over-week trend matters more than matching an external curve exactly.
+          </p>
+        </div>
+      )}
     </motion.div>
+  );
+}
+
+function RetentionCurveCard({ title, data, benchmarks, checkpointKey }: { title: string; data: any[]; benchmarks: Record<number, { healthy: number; avg: number; note?: string }>; checkpointKey: string }) {
+  const chartData = (data || []).map(d => ({
+    ...d,
+    healthyTarget: benchmarks[d[checkpointKey]]?.healthy ?? null,
+    avgTarget: benchmarks[d[checkpointKey]]?.avg ?? null,
+  }));
+  return (
+    <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-bold text-textMain">{title}</h3>
+        <div className="flex flex-wrap gap-3 text-[10px] font-bold uppercase tracking-wider">
+          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#218380]" /> Actual</div>
+          <div className="flex items-center gap-1.5"><div className="w-4 h-0.5 bg-[#94A3B8]" /> Category avg</div>
+          <div className="flex items-center gap-1.5"><div className="w-4 h-0.5 bg-[#D97757]" /> Healthy target</div>
+        </div>
+      </div>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(33,131,128,0.1)" />
+            <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 12, fontWeight: 600 }} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#4A5568', fontSize: 12, fontWeight: 500 }} tickFormatter={(v) => `${v}%`} />
+            <Tooltip
+              contentStyle={{ backgroundColor: '#ffffff', borderColor: '#D9CFC4', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.06)' }}
+              formatter={(value: number, name: string) => [value != null ? `${value.toFixed(1)}%` : 'n/a', name === 'retentionPct' ? 'Actual' : name === 'avgTarget' ? 'Category avg' : 'Healthy target']}
+            />
+            <Bar dataKey="retentionPct" fill="#218380" radius={[6, 6, 0, 0]} barSize={28} />
+            <Line type="monotone" dataKey="avgTarget" stroke="#94A3B8" strokeWidth={2} dot={false} strokeDasharray="4 3" connectNulls />
+            <Line type="monotone" dataKey="healthyTarget" stroke="#D97757" strokeWidth={2} dot={false} strokeDasharray="4 3" connectNulls />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="text-[11px] text-textMuted mt-3">
+        Cohort size shown is only installs old enough to have reached each checkpoint (e.g. a D30 bar excludes installs less than 30 days old).
+      </p>
+    </div>
   );
 }
 function MetricCard({ icon: Icon, label, value, trend, info }: any) {
