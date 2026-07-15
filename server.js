@@ -510,7 +510,7 @@ App knowledge (how Canopy works — use this to give exact steps):
 - Diagnostics: each agent's Diagnostics tab has connection checks and a repair action; the wrench icon in the top nav shows app-wide health.
 - Isolated agents run in their own sandbox with no shared memory — by design for money/secrets work.
 
-Context fields you receive: runtime_ready (local runtime up?), agents[] (status, paused, integrations list, slack_paired, model, enabled_permissions, last_action), provider_health[] (per-key status: ok / rate_limited / invalid_key / no_key — from a real test call), runtime_log_tail (last lines of the runtime log — provider errors, registration failures, and channel issues show up here; read it before saying "I don't know"), onboarding state.
+Context fields you receive: runtime_ready, active_view, onboarding state, aggregate usage counts, agents[] (name, status, paused, isolated, model, integrations, slack_paired), and provider_health[] (provider, status, model only). Raw logs, provider response details, permissions, credentials, agent instructions, and conversation history are intentionally never sent.
 
 Taking the user there: whenever your answer points the user at a specific place in the app, append exactly one action directive as the very last line of your reply, in exactly this form:
 <ACTION>{"type":"navigate","agentName":"Patch","tab":"connections","highlightText":"Slack"}</ACTION>
@@ -531,21 +531,43 @@ Hard rules:
 - If something is truly beyond you, suggest the agent's Diagnostics tab and offer to interpret what it reports.`;
 
 app.post('/api/keeper/chat', async (req, res) => {
-  const { messages, context } = req.body || {};
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'messages array required' });
+  const { message, messages, context, continuity } = req.body || {};
+  // Compatibility with older clients: use only their latest user turn and
+  // discard all other conversation turns before constructing the LLM request.
+  const legacyLatest = Array.isArray(messages)
+    ? [...messages].reverse().find(m => m?.role === 'user')?.content
+    : undefined;
+  const latestMessage = typeof message === 'string' ? message : legacyLatest;
+  if (typeof latestMessage !== 'string' || !latestMessage.trim() || latestMessage.length > 4000) {
+    return res.status(400).json({ error: 'message must be 1-4000 characters' });
   }
-
-  const contextBlock = `\n\n<CONTEXT>\n${JSON.stringify(context || {}, null, 2)}\n</CONTEXT>`;
-  // Cap history to the last 12 turns; sanitize roles.
-  const history = messages.slice(-12).map(m => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: String(m.content || '').slice(0, 4000),
-  }));
-  // Inject context onto the latest user turn so it's always fresh.
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].role === 'user') { history[i] = { ...history[i], content: history[i].content + contextBlock }; break; }
-  }
+  const safeContext = {
+    runtime_ready: Boolean(context?.runtime_ready),
+    active_view: String(context?.active_view || '').slice(0, 32),
+    onboarding: {
+      in_onboarding: Boolean(context?.onboarding?.in_onboarding),
+      draft_step: Number.isInteger(context?.onboarding?.draft_step) ? context.onboarding.draft_step : null,
+    },
+    usage: {
+      agent_count: Number(context?.usage?.agent_count) || 0,
+      errored_agents: Number(context?.usage?.errored_agents) || 0,
+    },
+    agents: Array.isArray(context?.agents) ? context.agents.slice(0, 100).map(a => ({
+      name: String(a?.name || '').slice(0, 200), status: String(a?.status || '').slice(0, 32),
+      paused: Boolean(a?.paused), isolated: Boolean(a?.isolated), model: String(a?.model || '').slice(0, 120),
+      integrations: Array.isArray(a?.integrations) ? a.integrations.slice(0, 50).map(v => String(v).slice(0, 64)) : [],
+      slack_paired: Boolean(a?.slack_paired),
+    })) : [],
+    provider_health: Array.isArray(context?.provider_health) ? context.provider_health.slice(0, 10).map(p => ({
+      provider: String(p?.provider || '').slice(0, 32), status: String(p?.status || '').slice(0, 32), model: String(p?.model || '').slice(0, 120),
+    })) : [],
+  };
+  const safeContinuity = {
+    topic: ['provider_setup','integration_setup','diagnostics','onboarding'].includes(continuity?.topic) ? continuity.topic : undefined,
+    target_agent: String(continuity?.target_agent || '').slice(0, 200) || undefined,
+    provider: ['openai','anthropic','gemini','xai'].includes(continuity?.provider) ? continuity.provider : undefined,
+  };
+  const history = [{ role: 'user', content: `${latestMessage.trim()}\n\n<CONTEXT>\n${JSON.stringify(safeContext)}\n</CONTEXT>\n<CONTINUITY>\n${JSON.stringify(safeContinuity)}\n</CONTINUITY>` }];
 
   try {
     if (ANTHROPIC_API_KEY) {
