@@ -1,13 +1,24 @@
 import express from 'express';
-import FormData from 'form-data';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import pg from 'pg';
+import {
+  createAdminAuthMiddleware,
+  createRateLimiter,
+  isAllowedMeshyAssetUrl,
+  sanitizeCanopyHelperRequest,
+  sanitizePublicSettings,
+  sanitizeTelemetryProperties,
+  sanitizeTelemetryMetrics,
+  validateConnector,
+  validatePollinationsImageUrl,
+  validateReleasePayload,
+} from './server-security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,7 +30,7 @@ try {
   if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const keyMatch = envContent.match(/^GEMINI_API_KEY=(.+)$/m);
-    if (keyMatch) GEMINI_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+    if (!GEMINI_API_KEY && keyMatch) GEMINI_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
   }
 } catch (e) {
   console.warn("Could not load .env file:", e);
@@ -31,7 +42,7 @@ try {
   if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const keyMatch = envContent.match(/^MESHY_API_KEY=(.+)$/m);
-    if (keyMatch) MESHY_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+    if (!MESHY_API_KEY && keyMatch) MESHY_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
   }
 } catch (e) {
   // Silent
@@ -43,7 +54,7 @@ try {
   if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const keyMatch = envContent.match(/^ADMIN_API_KEY=(.+)$/m);
-    if (keyMatch) ADMIN_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+    if (!ADMIN_API_KEY && keyMatch) ADMIN_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
   }
 } catch (e) {
   // Silent
@@ -57,16 +68,20 @@ try {
   if (fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf8');
     const keyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-    if (keyMatch) ANTHROPIC_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
+    if (!ANTHROPIC_API_KEY && keyMatch) ANTHROPIC_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
   }
 } catch (e) {
   // Silent
 }
 
-const upload = multer({ dest: '/tmp/uploads/' });
+const upload = multer({
+  dest: '/tmp/uploads/',
+  limits: { fileSize: 12 * 1024 * 1024, files: 25, fields: 20 },
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+app.set('trust proxy', 1);
 
 const DATA_DIR = path.join(__dirname, '../shared');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
@@ -179,37 +194,47 @@ if (!fs.existsSync(ACCESSORIES_FILE)) {
   fs.writeFileSync(ACCESSORIES_FILE, JSON.stringify(defaultAccs, null, 2), 'utf8');
 }
 
-app.use(cors());
-app.use(express.json());
-
-// Admin API Key Protection for write operations
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  'tauri://localhost',
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'https://canopy-admin-418538192879.us-central1.run.app',
+  ...configuredOrigins,
+]);
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-Admin-Key'],
+  maxAge: 3600,
+}));
 app.use((req, res, next) => {
-  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
-    console.log(`[Auth Middleware] Intercepted ${req.method} ${req.path}`);
-    // Whitelist endpoints that are meant for public client telemetry/ingress
-    // /api/telemetry/event: client apps POST anonymized usage events here with
-    // no admin key (they're not admin operations) — must stay whitelisted or
-    // every event 401s silently the moment ADMIN_API_KEY is set in prod.
-    const whitelistedPaths = ['/api/usage', '/api/generate', '/api/agents/add-suggestion', '/api/telemetry/event'];
-    
-    // Some paths might come with trailing slashes, so normalize it
-    const normalizedPath = req.path.replace(/\/+$/, '') || '/';
-    
-    if (whitelistedPaths.includes(normalizedPath) || whitelistedPaths.includes(req.path)) {
-      console.log(`[Auth Middleware] Path ${req.path} is whitelisted.`);
-      return next();
-    }
-
-    // Only enforce if the key is actually set on the server
-    if (ADMIN_API_KEY) {
-      const userKey = req.headers['x-admin-key'] || req.query.adminKey;
-      if (userKey !== ADMIN_API_KEY) {
-        return res.status(401).json({ error: "Unauthorized: Admin access required" });
-      }
-    }
-  }
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://image.pollinations.ai; font-src 'self' data:; connect-src 'self' https://generativelanguage.googleapis.com https://api.meshy.ai; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'",
+  });
   next();
 });
+app.use(express.json({ limit: '128kb', strict: true }));
+app.use('/api', createRateLimiter({ windowMs: 10 * 60_000, max: 600, keyPrefix: 'api' }));
+app.use(createAdminAuthMiddleware(() => ADMIN_API_KEY));
+const generationRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 10, keyPrefix: 'generate' });
+const helperRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'helper' });
+const suggestionRateLimit = createRateLimiter({ windowMs: 60 * 60_000, max: 5, keyPrefix: 'suggestion' });
+const telemetryRateLimit = createRateLimiter({ windowMs: 60_000, max: 120, keyPrefix: 'telemetry' });
+const imageProxyRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'image-proxy' });
 app.use('/agents', express.static(path.join(__dirname, '../shared/public/agents')));
 app.use('/models', express.static(path.join(__dirname, '../shared/public/models')));
 app.use('/accessories', express.static(path.join(__dirname, '../shared/public/accessories')));
@@ -231,14 +256,14 @@ if (!fs.existsSync(HABITATS_FILE)) {
   ], null, 2));
 }
 
-function createJsonApi(routePath, filePath) {
+function createJsonApi(routePath, filePath, options = {}) {
   app.get(routePath, (req, res) => {
     try {
       if (!fs.existsSync(filePath)) {
         return res.json(routePath === '/api/library' ? [] : {});
       }
-      const data = fs.readFileSync(filePath, 'utf8');
-      res.json(JSON.parse(data));
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      res.json(options.readTransform ? options.readTransform(data) : data);
     } catch (error) {
       console.error(`Error reading ${filePath}:`, error);
       res.status(500).json({ error: 'Failed to read data' });
@@ -247,7 +272,7 @@ function createJsonApi(routePath, filePath) {
 
   app.post(routePath, (req, res) => {
     try {
-      const newData = req.body;
+      const newData = options.writeTransform ? options.writeTransform(req.body) : req.body;
       fs.writeFileSync(filePath, JSON.stringify(newData, null, 2), 'utf8');
       res.json({ success: true });
     } catch (error) {
@@ -261,7 +286,9 @@ createJsonApi('/api/connectors', CONNECTORS_FILE);
 
 app.post('/api/connectors/generate', async (req, res) => {
   const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: 'No prompt provided' });
+  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 1000) {
+    return res.status(400).json({ error: 'Prompt must be 1-1000 characters' });
+  }
   if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY missing from .env' });
 
   const aiPrompt = `You are a strict configuration generator for a React application.
@@ -280,9 +307,9 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
 }`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: aiPrompt }] }],
         generationConfig: { temperature: 0.2 }
@@ -297,77 +324,18 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
       textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
     }
 
-    const newConnector = JSON.parse(textResult);
+    const newConnector = validateConnector(JSON.parse(textResult));
 
     // Save to connectors.json
     let connectors = [];
     if (fs.existsSync(CONNECTORS_FILE)) {
       connectors = JSON.parse(fs.readFileSync(CONNECTORS_FILE, 'utf8'));
     }
+    if (connectors.some(connector => connector?.id === newConnector.id)) {
+      return res.status(409).json({ error: 'A connector with that id already exists' });
+    }
     connectors.push(newConnector);
     fs.writeFileSync(CONNECTORS_FILE, JSON.stringify(connectors, null, 2), 'utf8');
-
-    // If needsCompanion is true, we scaffold a companion window component
-    if (newConnector.needsCompanion) {
-      const companionName = newConnector.id.charAt(0).toUpperCase() + newConnector.id.slice(1) + 'Companion.tsx';
-      const companionPath = path.join(__dirname, '../canopy/src/components/Companion', companionName);
-      if (!fs.existsSync(companionPath)) {
-        const template = `import { useState } from "react";
-import { emit } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-
-export function \${companionName.replace('.tsx','')} () {
-  const searchParams = new URLSearchParams(window.location.search);
-  const agentId = searchParams.get("agentId") || "global";
-  const [token, setToken] = useState("");
-  const [status, setStatus] = useState<"idle"|"testing"|"success"|"error">("idle");
-
-  const handleConnect = async () => {
-     setStatus("testing");
-     try {
-       await invoke("store_batch_secrets_cmd", {
-         secrets: { [\`agent_\${agentId}_\${newConnector.id}_token\`]: token }
-       });
-       setStatus("success");
-       setTimeout(async () => {
-          await emit("companion-finished", { type: "\${newConnector.id}" });
-          const { getCurrentWindow } = await import('@tauri-apps/api/window');
-          await getCurrentWindow().close();
-       }, 2000);
-     } catch (e) {
-       setStatus("error");
-     }
-  };
-
-  return (
-    <div style={{ padding: 24, fontFamily: "system-ui", background: "var(--surface-card)", minHeight: "100vh", color: "var(--text-main)" }}>
-      <h2 style={{marginTop: 0}}>Setup \${newConnector.name}</h2>
-      <p style={{fontSize: 13, color: "var(--text-sub)", marginBottom: 24}}>\${newConnector.subtitle}</p>
-      
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>API Token</label>
-        <input 
-          type="password"
-          value={token}
-          onChange={e => setToken(e.target.value)}
-          style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-subtle)", boxSizing: "border-box" }}
-        />
-      </div>
-
-      <button 
-        onClick={handleConnect}
-        disabled={!token || status === "testing" || status === "success"}
-        style={{ width: "100%", padding: "10px", background: status === "success" ? "#34A853" : "#3c6663", color: "white", border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer" }}
-      >
-        {status === "idle" ? "Connect" : status === "testing" ? "Connecting..." : status === "success" ? "Connected!" : "Failed - Try Again"}
-      </button>
-    </div>
-  );
-}
-`;
-        fs.writeFileSync(companionPath, template, 'utf8');
-      }
-    }
 
     res.json(newConnector);
   } catch (error) {
@@ -407,11 +375,13 @@ function hashStringToColor(str) {
   return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-app.post('/api/generate', async (req, res) => {
+app.post('/api/generate', generationRateLimit, async (req, res) => {
   const { prompt } = req.body;
-  if (!prompt) return res.status(400).json({ error: 'No prompt provided' });
+  if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 2000) {
+    return res.status(400).json({ error: 'Prompt must be 1-2000 characters' });
+  }
 
-  console.log("Protected Generation Request for:", prompt);
+  console.log("Protected generation request accepted", { promptLength: prompt.length });
 
   if (!GEMINI_API_KEY) {
     return res.status(500).json({ error: 'GEMINI_API_KEY missing from .env' });
@@ -433,9 +403,9 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 }`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: injectedPrompt }] }],
         generationConfig: { temperature: 0.7 }
@@ -443,8 +413,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      console.error("Gemini API Error:", text);
+      console.error("Gemini generation request failed", { status: response.status });
       return res.status(500).json({ error: "Gemini API generation failed" });
     }
 
@@ -486,13 +455,13 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 });
 
 // --- DYNAMIC BOOK MODERATION ---
-// ─── The Keeper (Eddy) — cloud-hosted helper agent ───────────────────────────
+// ─── Eddy — cloud-hosted Canopy helper ───────────────────────────────────────
 // Spec: spec-helper-agent-and-orchestrator.md Part 1 / F-K1. The Tauri app
 // assembles a structured context payload (health, onboarding progress, errors,
 // usage) and sends it with each message. We call the LLM with Eddy's system
 // prompt + injected context. Runs on Canopy's key — works before the user has
 // configured anything, and keeps working when their key is the thing broken.
-const KEEPER_SYSTEM_PROMPT = `You are Eddy, The Keeper — Canopy's built-in guide and troubleshooter. Canopy is a Mac app where people run a small team of AI agents (styled as lobsters, each living in a habitat in an isometric world). You live in a reef cave at the edge of the world, golden-shelled, easy-going, surfboard outside.
+const CANOPY_HELPER_SYSTEM_PROMPT = `You are Eddy, Canopy's built-in guide and troubleshooter. Canopy is a Mac app where people run a small team of AI agents (styled as lobsters, each living in a habitat in an isometric world). You live in a reef cave at the edge of the world, golden-shelled, easy-going, surfboard outside.
 
 Personality: a really good hotel concierge with surfer warmth. Calm, competent, brief. You never volunteer opinions unless asked or something is genuinely wrong. Friendly, never chatty.
 
@@ -530,44 +499,14 @@ Hard rules:
 - You cannot modify the user's agents or settings; you guide, they click.
 - If something is truly beyond you, suggest the agent's Diagnostics tab and offer to interpret what it reports.`;
 
-app.post('/api/keeper/chat', async (req, res) => {
-  const { message, messages, context, continuity } = req.body || {};
-  // Compatibility with older clients: use only their latest user turn and
-  // discard all other conversation turns before constructing the LLM request.
-  const legacyLatest = Array.isArray(messages)
-    ? [...messages].reverse().find(m => m?.role === 'user')?.content
-    : undefined;
-  const latestMessage = typeof message === 'string' ? message : legacyLatest;
-  if (typeof latestMessage !== 'string' || !latestMessage.trim() || latestMessage.length > 4000) {
-    return res.status(400).json({ error: 'message must be 1-4000 characters' });
+app.post(['/api/canopy-helper/chat', '/api/keeper/chat'], helperRateLimit, async (req, res) => {
+  let safeRequest;
+  try {
+    safeRequest = sanitizeCanopyHelperRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
-  const safeContext = {
-    runtime_ready: Boolean(context?.runtime_ready),
-    active_view: String(context?.active_view || '').slice(0, 32),
-    onboarding: {
-      in_onboarding: Boolean(context?.onboarding?.in_onboarding),
-      draft_step: Number.isInteger(context?.onboarding?.draft_step) ? context.onboarding.draft_step : null,
-    },
-    usage: {
-      agent_count: Number(context?.usage?.agent_count) || 0,
-      errored_agents: Number(context?.usage?.errored_agents) || 0,
-    },
-    agents: Array.isArray(context?.agents) ? context.agents.slice(0, 100).map(a => ({
-      name: String(a?.name || '').slice(0, 200), status: String(a?.status || '').slice(0, 32),
-      paused: Boolean(a?.paused), isolated: Boolean(a?.isolated), model: String(a?.model || '').slice(0, 120),
-      integrations: Array.isArray(a?.integrations) ? a.integrations.slice(0, 50).map(v => String(v).slice(0, 64)) : [],
-      slack_paired: Boolean(a?.slack_paired),
-    })) : [],
-    provider_health: Array.isArray(context?.provider_health) ? context.provider_health.slice(0, 10).map(p => ({
-      provider: String(p?.provider || '').slice(0, 32), status: String(p?.status || '').slice(0, 32), model: String(p?.model || '').slice(0, 120),
-    })) : [],
-  };
-  const safeContinuity = {
-    topic: ['provider_setup','integration_setup','diagnostics','onboarding'].includes(continuity?.topic) ? continuity.topic : undefined,
-    target_agent: String(continuity?.target_agent || '').slice(0, 200) || undefined,
-    provider: ['openai','anthropic','gemini','xai'].includes(continuity?.provider) ? continuity.provider : undefined,
-  };
-  const history = [{ role: 'user', content: `${latestMessage.trim()}\n\n<CONTEXT>\n${JSON.stringify(safeContext)}\n</CONTEXT>\n<CONTINUITY>\n${JSON.stringify(safeContinuity)}\n</CONTINUITY>` }];
+  const history = [{ role: 'user', content: `${safeRequest.message}\n\n<CONTEXT>\n${JSON.stringify(safeRequest.context)}\n</CONTEXT>\n<CONTINUITY>\n${JSON.stringify(safeRequest.continuity)}\n</CONTINUITY>` }];
 
   try {
     if (ANTHROPIC_API_KEY) {
@@ -581,14 +520,13 @@ app.post('/api/keeper/chat', async (req, res) => {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 600,
-          system: KEEPER_SYSTEM_PROMPT,
+          system: CANOPY_HELPER_SYSTEM_PROMPT,
           messages: history,
         }),
       });
       if (!r.ok) {
-        const t = await r.text();
-        console.error('Keeper anthropic error:', r.status, t.slice(0, 300));
-        return res.status(502).json({ error: 'keeper_llm_error' });
+        console.error('Canopy helper Anthropic error:', r.status);
+        return res.status(502).json({ error: 'canopy_helper_llm_error' });
       }
       const data = await r.json();
       const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
@@ -597,35 +535,37 @@ app.post('/api/keeper/chat', async (req, res) => {
 
     if (GEMINI_API_KEY) {
       const contents = history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: KEEPER_SYSTEM_PROMPT }] },
+          systemInstruction: { parts: [{ text: CANOPY_HELPER_SYSTEM_PROMPT }] },
           contents,
           generationConfig: { temperature: 0.6, maxOutputTokens: 600 },
         }),
       });
       if (!r.ok) {
-        const t = await r.text();
-        console.error('Keeper gemini error:', r.status, t.slice(0, 300));
-        return res.status(502).json({ error: 'keeper_llm_error' });
+        console.error('Canopy helper Gemini error:', r.status);
+        return res.status(502).json({ error: 'canopy_helper_llm_error' });
       }
       const data = await r.json();
       const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n').trim() || '';
       return res.json({ reply });
     }
 
-    return res.status(503).json({ error: 'keeper_no_key', detail: 'No ANTHROPIC_API_KEY or GEMINI_API_KEY configured on the admin server.' });
+    return res.status(503).json({ error: 'canopy_helper_no_key', detail: 'No ANTHROPIC_API_KEY or GEMINI_API_KEY configured on the admin server.' });
   } catch (e) {
-    console.error('Keeper endpoint failure:', e);
-    return res.status(500).json({ error: 'keeper_internal_error' });
+    console.error('Canopy helper endpoint failure:', e);
+    return res.status(500).json({ error: 'canopy_helper_internal_error' });
   }
 });
 
-app.post('/api/agents/add-suggestion', async (req, res) => {
+app.post('/api/agents/add-suggestion', suggestionRateLimit, async (req, res) => {
   const { role, bookTitle } = req.body;
-  if (!role || !bookTitle) return res.status(400).json({ error: "Missing role or bookTitle" });
+  if (
+    typeof role !== 'string' || !role.trim() || role.length > 80 ||
+    typeof bookTitle !== 'string' || !bookTitle.trim() || bookTitle.length > 200
+  ) return res.status(400).json({ error: "Invalid role or bookTitle" });
   if (!GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY missing" });
 
   const checkPrompt = `You are a strict content safety moderator for a professional AI workspace product.
@@ -638,9 +578,9 @@ Reply ONLY with the exact word "YES" if it is controversial/offensive/unsafe.
 Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: checkPrompt }] }],
         generationConfig: { temperature: 0.1 }
@@ -655,73 +595,30 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
       return res.status(403).json({ error: "Book rejected as unsafe" });
     }
 
-    if (fs.existsSync(AGENTS_FILE)) {
-      let agents = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
-      if (agents[role]) {
-        if (!agents[role].library) agents[role].library = [];
-
-        // Deduplicate
-        const existing = agents[role].library.find(b => b.title.toLowerCase() === bookTitle.toLowerCase());
-        if (!existing) {
-          agents[role].library.unshift({ title: bookTitle, author: "Unknown", mode: "Cultural Reference" });
-          fs.writeFileSync(AGENTS_FILE, JSON.stringify(agents, null, 2), "utf8");
-        }
-      }
-    }
-    return res.json({ success: true, message: "Added successfully" });
+    // Public clients may ask for moderation, but cannot mutate the global persona
+    // catalog. The title is already stored in the user's local onboarding draft.
+    return res.json({ success: true, accepted: true, message: "Suggestion accepted locally" });
   } catch (e) {
     console.error("Book moderation failed:", e);
     return res.status(500).json({ error: "Moderation connection failed" });
   }
 });
 
-// --- DYNAMIC COMPANION TELEMETRY ---
-let latestTelemetryPayload = "";
+// Raw companion DOM snapshots previously landed in one process-global buffer, which
+// could mix one user's screen text into another user's analysis. Browser guidance must
+// remain local to the desktop app; the cloud endpoint is intentionally retired.
 app.post('/api/telemetry/target', (req, res) => {
-  if (req.body && req.body.domText) {
-    latestTelemetryPayload = req.body.domText;
-  }
-  res.json({ success: true });
+  res.status(410).json({ error: 'Remote screen telemetry has been removed' });
 });
-
-app.post('/api/analyze-screen', async (req, res) => {
-  if (!GEMINI_API_KEY) return res.status(500).json({ error: "Missing config" });
-  if (!latestTelemetryPayload) return res.json({ instruction: "Waiting for the browser to load..." });
-
-  const checkPrompt = `You are a helpful software setup companion UI. The user is currently configuring their Slack App Integration.
-Based on the raw text scraped from their current screen (below), determine EXACTLY what they need to do next. 
-If they are on the Workspace Selection screen, tell them to select a workspace. 
-If they are on the manifest review screen, tell them to hit 'Next' or 'Create'.
-If they are on the App-Level Tokens screen, explain how to generate it with the connections:write scope.
-If they are on the Bot Token screen (Install App), explain how to grab the xoxb- token.
-
-Rules:
-- Give ONE single instruction block. Keep it under 2 sentences. No markdown formatting.
-
-Raw Screen Text:
-"""
-${latestTelemetryPayload.substring(0, 8000)}
-"""`;
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: checkPrompt }] }],
-        generationConfig: { temperature: 0.1 }
-      })
-    });
-    const data = await response.json();
-    let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Analyzing screen...";
-    return res.json({ instruction: result });
-  } catch (e) {
-    return res.json({ instruction: "Connection temporarily lost." });
-  }
+app.post('/api/analyze-screen', (req, res) => {
+  res.status(410).json({ error: 'Remote screen analysis has been removed' });
 });
 createJsonApi('/api/agents', AGENTS_FILE);
 createJsonApi('/api/library', LIBRARY_FILE);
-createJsonApi('/api/settings', SETTINGS_FILE);
+createJsonApi('/api/settings', SETTINGS_FILE, {
+  readTransform: sanitizePublicSettings,
+  writeTransform: sanitizePublicSettings,
+});
 import Database from 'better-sqlite3';
 
 function getProvider(modelId) {
@@ -1221,6 +1118,9 @@ function writeReleases(data) {
 // build for the requested target.
 app.get('/api/updates/:target/:currentVersion', (req, res) => {
   const { target, currentVersion } = req.params;
+  if (!/^[a-z0-9_-]{3,64}$/.test(target) || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(currentVersion)) {
+    return res.status(400).json({ error: 'Invalid update target or version' });
+  }
   const data = readReleases();
 
   if (!data.latest || !data.releases?.length) {
@@ -1270,19 +1170,13 @@ app.get('/api/releases', (req, res) => {
 //       ...
 //     } }
 app.post('/api/releases', (req, res) => {
-  const { version, notes, pub_date, platforms } = req.body || {};
-
-  if (!version || typeof version !== 'string') {
-    return res.status(400).json({ error: "version is required (string, e.g. '0.2.0')" });
+  let release;
+  try {
+    release = validateReleasePayload(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
   }
-  if (!platforms || typeof platforms !== 'object' || !Object.keys(platforms).length) {
-    return res.status(400).json({ error: "platforms is required (object keyed by Tauri target, e.g. 'darwin-aarch64')" });
-  }
-  for (const [tgt, p] of Object.entries(platforms)) {
-    if (!p || typeof p.signature !== 'string' || typeof p.url !== 'string') {
-      return res.status(400).json({ error: `platforms.${tgt} must be { signature: string, url: string }` });
-    }
-  }
+  const { version, notes, pub_date, platforms } = release;
 
   const data = readReleases();
   // Replace if a row for this exact version already exists — re-publishing a
@@ -1308,6 +1202,9 @@ app.post('/api/releases', (req, res) => {
 // Delete a release (e.g. you published a broken signature and want to roll back).
 app.delete('/api/releases/:version', (req, res) => {
   const { version } = req.params;
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    return res.status(400).json({ error: 'Invalid release version' });
+  }
   const data = readReleases();
   const before = data.releases?.length || 0;
   data.releases = (data.releases || []).filter(r => r.version !== version);
@@ -1324,13 +1221,13 @@ app.delete('/api/releases/:version', (req, res) => {
 // the admin Dashboard. It intentionally does not accept an agent id, agent
 // name, or any other user-identifiable field — only a random anon_id plus
 // aggregate stats for one usage event.
-app.post('/api/telemetry/event', (req, res) => {
+app.post('/api/telemetry/event', telemetryRateLimit, (req, res) => {
   const { anon_id, event_type, provider, model_version, persona_role, tokens_in, tokens_out, cost_usd, properties, timestamp } = req.body || {};
 
-  if (!anon_id || typeof anon_id !== 'string' || anon_id.length > 128) {
+  if (typeof anon_id !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(anon_id)) {
     return res.status(400).json({ error: "anon_id is required" });
   }
-  if (!event_type || typeof event_type !== 'string' || event_type.length > 64) {
+  if (typeof event_type !== 'string' || !/^[a-z0-9_]{1,64}$/.test(event_type)) {
     return res.status(400).json({ error: "event_type is required" });
   }
 
@@ -1340,7 +1237,8 @@ app.post('/api/telemetry/event', (req, res) => {
   // number/name, companion pairing profileType/experience/deviceName, etc).
   // Never message content, names, or other PII — enforced by convention on
   // the client side, not re-validated here beyond "is it a plain object".
-  const resolvedProperties = (properties && typeof properties === 'object' && !Array.isArray(properties)) ? properties : null;
+  const resolvedProperties = sanitizeTelemetryProperties(properties);
+  const metrics = sanitizeTelemetryMetrics(tokens_in, tokens_out, cost_usd);
 
   if (!pgPool) {
     // No DATABASE_URL configured — accept so the client doesn't error/retry,
@@ -1357,9 +1255,9 @@ app.post('/api/telemetry/event', (req, res) => {
       resolvedProvider,
       typeof model_version === 'string' ? model_version : null,
       typeof persona_role === 'string' && persona_role ? persona_role : 'custom',
-      Number(tokens_in) || 0,
-      Number(tokens_out) || 0,
-      Number(cost_usd) || 0,
+      metrics.tokensIn,
+      metrics.tokensOut,
+      metrics.costUsd,
       resolvedProperties ? JSON.stringify(resolvedProperties) : null,
       eventTs
     ]
@@ -1535,7 +1433,9 @@ async function syncPricingAndModels() {
     if (GEMINI_API_KEY) {
       try {
         console.log("Fetching live Gemini models from Google API for pricing update...");
-        const gmRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_API_KEY}`);
+        const gmRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': GEMINI_API_KEY },
+        });
         if (gmRes.ok) {
           const gmData = await gmRes.json();
           for (const m of (gmData.models || [])) {
@@ -1626,8 +1526,8 @@ User Request: ${prompt}`;
   try {
     let items = [prompt];
     if (GEMINI_API_KEY) {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_API_KEY}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: injectedPrompt }] }] })
       });
       if (response.ok) {
@@ -1657,19 +1557,45 @@ User Request: ${prompt}`;
 });
 
 let proxyQueue = Promise.resolve();
+let proxyPending = 0;
 
-app.get('/api/proxy-image', async (req, res) => {
-  const imageUrl = req.query.url;
-  if (!imageUrl) return res.status(400).send('Missing url');
+async function readBodyLimited(response, maxBytes) {
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error('Remote image exceeds size limit');
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of response.body) {
+    total += chunk.length;
+    if (total > maxBytes) throw new Error('Remote image exceeds size limit');
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks, total);
+}
+
+app.get('/api/proxy-image', imageProxyRateLimit, async (req, res) => {
+  let imageUrl;
+  try {
+    imageUrl = validatePollinationsImageUrl(req.query.url);
+  } catch {
+    return res.status(400).send('Invalid image URL');
+  }
+  if (proxyPending >= 20) return res.status(429).send('Image proxy is busy');
+  proxyPending += 1;
 
   const processRequest = async () => {
     // Hard wait of 5 seconds before EVERY request to comply with pollinations rate limits
     await new Promise(r => setTimeout(r, 5000));
 
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 3;
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
-        const response = await fetch(imageUrl);
+        const response = await fetch(imageUrl, {
+          redirect: 'error',
+          signal: AbortSignal.timeout(30_000),
+          headers: { Accept: 'image/png,image/jpeg,image/webp,image/gif' },
+        });
         if (!response.ok) {
           if (response.status === 429 || response.status >= 500) {
             throw new Error(`External fetch failed: ${response.status}`);
@@ -1678,18 +1604,22 @@ app.get('/api/proxy-image', async (req, res) => {
           }
         }
 
-        const buffer = await response.arrayBuffer();
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
+        const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(contentType)) {
+          throw new Error('External response was not an allowed image type');
+        }
+        const buffer = await readBodyLimited(response, 10 * 1024 * 1024);
 
         res.set('Content-Type', contentType);
         res.set('Cache-Control', 'public, max-age=3600');
-        return res.send(Buffer.from(buffer));
+        res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+        return res.send(buffer);
       } catch (e) {
         if (i === MAX_RETRIES - 1 || e.message.includes("fatally")) {
           console.error("Proxy error after retries:", e.message);
           return res.status(500).send('Image proxy failed');
         }
-        console.warn(`[Proxy] Retry ${i+1}/${MAX_RETRIES} for ${imageUrl.substring(0, 50)}...`);
+        console.warn(`[Proxy] Retry ${i+1}/${MAX_RETRIES} for approved image host`);
         // Exponential backoff
         await new Promise(r => setTimeout(r, 2000 * (i + 1)));
       }
@@ -1697,7 +1627,14 @@ app.get('/api/proxy-image', async (req, res) => {
   };
 
   // Add to global promise queue to prevent pollinations.ai 429 errors from parallel generation
-  proxyQueue = proxyQueue.then(processRequest).catch(() => {});
+  proxyQueue = proxyQueue
+    .then(processRequest)
+    .catch(() => {
+      if (!res.headersSent) res.status(500).send('Image proxy failed');
+    })
+    .finally(() => {
+      proxyPending = Math.max(0, proxyPending - 1);
+    });
 });
 
 async function uploadToPublicBridge(localPath) {
@@ -1741,16 +1678,30 @@ async function uploadToPublicBridge(localPath) {
 
 const taskIdToPath = new Map();
 
+function normalizeMeshyInput(imageUrl) {
+  if (typeof imageUrl !== 'string' || imageUrl.length > 4096) throw new Error('Invalid image URL');
+  if (/^\/(agents|accessories)\/[A-Za-z0-9._-]+$/.test(imageUrl)) {
+    return { kind: 'local', value: imageUrl };
+  }
+  const proxyMarker = '/api/proxy-image?';
+  if (imageUrl.includes(proxyMarker)) {
+    const parsed = new URL(imageUrl, 'http://canopy.invalid');
+    return { kind: 'remote', value: validatePollinationsImageUrl(parsed.searchParams.get('url')) };
+  }
+  return { kind: 'remote', value: validatePollinationsImageUrl(imageUrl) };
+}
+
 app.post('/api/meshy-task', async (req, res) => {
   const { imageUrl } = req.body;
   if (!imageUrl) return res.status(400).json({ error: 'No image URL provided' });
   if (!MESHY_API_KEY) return res.status(400).json({ error: 'MESHY_API_KEY is not configured in .env.' });
 
   try {
-    let targetUrl = imageUrl;
+    const normalizedInput = normalizeMeshyInput(imageUrl);
+    let targetUrl = normalizedInput.value;
 
     // Handle relative paths by bridging them to a public URL
-    if (imageUrl.startsWith('/')) {
+    if (normalizedInput.kind === 'local') {
       try {
         targetUrl = await uploadToPublicBridge(imageUrl);
       } catch (bridgeErr) {
@@ -1780,17 +1731,19 @@ app.post('/api/meshy-task', async (req, res) => {
     }
 
     const taskId = data.result;
+    if (typeof taskId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) {
+      throw new Error('Meshy returned an invalid task id');
+    }
+    if (taskIdToPath.size >= 1000) taskIdToPath.delete(taskIdToPath.keys().next().value);
     taskIdToPath.set(taskId, imageUrl);
 
     // Immediately download the original PNG so it appears in the catalog instantly while the 3D model bakes
     try {
-      const trueUrl = imageUrl.includes('/api/proxy-image?url=') ? decodeURIComponent(imageUrl.split('url=')[1]) : imageUrl;
-      // Also handle direct pollinations url if bypassed proxy
-      const finalUrl = trueUrl.includes('localhost:') ? decodeURIComponent(trueUrl.split('url=')[1]) : trueUrl;
-      
-      const imgRes = await fetch(finalUrl);
+      const imgRes = await fetch(targetUrl, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
       if (imgRes.ok) {
-        const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+        const imageType = (imgRes.headers.get('content-type') || '').split(';')[0].toLowerCase();
+        if (!['image/png', 'image/jpeg', 'image/webp'].includes(imageType)) throw new Error('Unexpected source image type');
+        const imgBuffer = await readBodyLimited(imgRes, 10 * 1024 * 1024);
         const pngSavePath = path.join(__dirname, '../shared/public/accessories', `meshy_${taskId}.png`);
         fs.writeFileSync(pngSavePath, imgBuffer);
       }
@@ -1808,6 +1761,7 @@ app.post('/api/meshy-task', async (req, res) => {
 
 app.get('/api/meshy-check/:taskId', async (req, res) => {
   const { taskId } = req.params;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) return res.status(400).json({ error: 'Invalid task id' });
   if (!MESHY_API_KEY) return res.status(400).json({ error: 'MESHY_API_KEY is not configured' });
 
   try {
@@ -1819,8 +1773,10 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
     if (data.status === 'SUCCEEDED') {
       const originalPath = taskIdToPath.get(taskId);
       const glbUrl = data.model_urls.glb;
-      const download = await fetch(glbUrl);
-      const buffer = Buffer.from(await download.arrayBuffer());
+      if (!isAllowedMeshyAssetUrl(glbUrl)) throw new Error('Meshy returned an unapproved asset URL');
+      const download = await fetch(glbUrl, { redirect: 'error', signal: AbortSignal.timeout(60_000) });
+      if (!download.ok) throw new Error(`Meshy asset download failed (${download.status})`);
+      const buffer = await readBodyLimited(download, 100 * 1024 * 1024);
 
       let fileName = `meshy_${taskId}.glb`;
       if (originalPath && originalPath.includes('.') && !originalPath.includes('pollinations.ai') && !originalPath.startsWith('http')) {
@@ -1847,17 +1803,37 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
   }
 });
 
+function detectedUploadExtension(filePath, allowGlb) {
+  const header = fs.readFileSync(filePath).subarray(0, 16);
+  if (header.length >= 8 && header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return '.png';
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return '.jpg';
+  if (header.length >= 12 && header.subarray(0, 4).toString() === 'RIFF' && header.subarray(8, 12).toString() === 'WEBP') return '.webp';
+  if (allowGlb && header.length >= 4 && header.subarray(0, 4).toString() === 'glTF') return '.glb';
+  return null;
+}
+
+function removeTempUploads(files) {
+  for (const file of files || []) {
+    try { if (file?.path && fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch { /* best effort */ }
+  }
+}
+
 app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No image provided' });
-    const ext = path.extname(file.originalname).toLowerCase();
-    const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+    const ext = detectedUploadExtension(file.path, false);
+    if (!ext) {
+      removeTempUploads([file]);
+      return res.status(415).json({ error: 'Only valid PNG, JPEG, or WebP images are allowed' });
+    }
+    const fileName = `upload_${crypto.randomUUID()}${ext}`;
     const savePath = path.join(__dirname, '../shared/public/agents', fileName);
     fs.renameSync(file.path, savePath);
 
     res.json({ success: true, imagePath: `/agents/${fileName}` });
   } catch (e) {
+    removeTempUploads([req.file]);
     console.error(e);
     res.status(500).json({ error: 'Failed to upload image' });
   }
@@ -1865,13 +1841,19 @@ app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
 
 app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
   try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) return res.status(400).json({ error: 'No files provided' });
+    const validatedFiles = files.map(file => ({ file, ext: detectedUploadExtension(file.path, true) }));
+    if (validatedFiles.some(entry => !entry.ext)) {
+      removeTempUploads(files);
+      return res.status(415).json({ error: 'Only valid PNG, JPEG, WebP, or GLB files are allowed' });
+    }
     const uploadedFiles = [];
     if (!fs.existsSync(ACCESSORIES_FILE)) return res.status(500).json({ error: 'Accessories JSON missing' });
     const accData = JSON.parse(fs.readFileSync(ACCESSORIES_FILE, 'utf8'));
 
-    for (const file of req.files) {
-      const ext = path.extname(file.originalname).toLowerCase();
-      const fileName = `upload_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+    for (const { file, ext } of validatedFiles) {
+      const fileName = `upload_${crypto.randomUUID()}${ext}`;
       const savePath = path.join(__dirname, '../shared/public/accessories', fileName);
       fs.renameSync(file.path, savePath);
 
@@ -1883,15 +1865,31 @@ app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
     fs.writeFileSync(ACCESSORIES_FILE, JSON.stringify(accData, null, 2));
     res.json({ success: true, files: uploadedFiles });
   } catch (e) {
+    removeTempUploads(Array.isArray(req.files) ? req.files : []);
     console.error(e);
     res.status(500).json({ error: 'Failed to upload files' });
   }
 });
 
 
-// Sync on boot, then every 7 days (weekly)
-syncPricingAndModels();
-setInterval(syncPricingAndModels, 7 * 24 * 60 * 60 * 1000);
+// Sync on boot, then every 7 days (weekly). Tests import the app without
+// performing paid/network work or leaving timers behind.
+if (process.env.NODE_ENV !== 'test') {
+  syncPricingAndModels();
+  setInterval(syncPricingAndModels, 7 * 24 * 60 * 60 * 1000);
+}
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    return res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+      error: error.code === 'LIMIT_FILE_SIZE' ? 'Upload exceeds the 12 MB file limit' : 'Invalid upload',
+    });
+  }
+  if (error?.message === 'Origin is not allowed') {
+    return res.status(403).json({ error: 'Origin is not allowed' });
+  }
+  return next(error);
+});
 
 // --- Serve built frontend in production ---
 const distPath = path.join(__dirname, 'dist');
@@ -1922,6 +1920,10 @@ app.get('*all', (req, res) => {
 // binding to 127.0.0.1 only would make the service unreachable from the
 // outside and the container would fail to come up.
 const HOST = process.env.HOST || '0.0.0.0';
-app.listen(PORT, HOST, () => {
-  console.log(`Admin Server API running on http://${HOST}:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, HOST, () => {
+    console.log(`Admin Server API running on http://${HOST}:${PORT}`);
+  });
+}
+
+export { app };

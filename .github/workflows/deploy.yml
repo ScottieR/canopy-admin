@@ -5,40 +5,70 @@ on:
     branches:
       - production
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   test-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout canopy-admin
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: canopy-admin
+          persist-credentials: false
 
       - name: Checkout canopy (for assets and tests)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: ScottieR/canopy
           path: canopy
           ssh-key: ${{ secrets.CANOPY_DEPLOY_KEY }}
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: |-
+            canopy/package-lock.json
+            canopy-admin/package-lock.json
 
-      - name: Run Tests (Canopy)
+      - name: Verify Canopy
+        working-directory: canopy
         run: |
-          cd canopy
-          npm install
+          npm ci --ignore-scripts
           npm run test -- --run
+          npm run build
+          npm audit --audit-level=high
         continue-on-error: false
+
+      - name: Verify Admin
+        working-directory: canopy-admin
+        env:
+          NODE_ENV: test
+          ADMIN_API_KEY: ci-integration-admin-key
+        run: |
+          npm ci --ignore-scripts
+          npm rebuild better-sqlite3
+          npm test
+          npm run build
+          npm audit --audit-level=high
 
       - name: Send Alert on Test Failure
         if: failure()
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
         run: |
-          # The deploy will automatically halt here since the tests failed.
-          # To send an alert to your phone/slack/discord, paste your webhook URL here.
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Canopy Admin Deploy Failed: Tests did not pass on production branch!"}' ${{ secrets.ALERT_WEBHOOK_URL }}
+          if [ -n "$ALERT_WEBHOOK_URL" ]; then
+            curl --fail --silent --show-error --max-time 15 \
+              -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Canopy Admin deploy failed: security or regression checks did not pass."}' \
+              "$ALERT_WEBHOOK_URL"
+          fi
 
       - name: Prepare Dockerfile
         run: |
@@ -50,29 +80,39 @@ jobs:
           **/node_modules
           EOF
           cat << 'EOF' > Dockerfile
-          FROM node:20-alpine
+          FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
           WORKDIR /app
           RUN apk add --no-cache python3 make g++
           COPY canopy-admin/package*.json ./canopy-admin/
           WORKDIR /app/canopy-admin
-          RUN npm install
+          RUN npm ci --ignore-scripts
+          RUN npm rebuild better-sqlite3
           WORKDIR /app
           COPY canopy/public ./canopy/public
           COPY canopy-admin ./canopy-admin
           WORKDIR /app/canopy-admin
           RUN npm run build
+          RUN npm prune --omit=dev --ignore-scripts
+
+          FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+          ENV NODE_ENV=production
+          WORKDIR /app
+          COPY --from=build /app/canopy ./canopy
+          COPY --from=build /app/canopy-admin ./canopy-admin
+          WORKDIR /app/canopy-admin
           ENV PORT=8080
           EXPOSE 8080
           CMD ["node", "server.js"]
           EOF
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          workload_identity_provider: projects/418538192879/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: github@canopy-admin-server.iam.gserviceaccount.com
 
       - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v3
+        uses: google-github-actions/deploy-cloudrun@2028e2d7d30a78c6910e0632e48dd561b064884d # v3
         with:
           service: canopy-admin
           region: us-central1

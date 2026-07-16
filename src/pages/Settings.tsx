@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Link, Shield, Globe, KeyRound } from 'lucide-react';
+import { Settings as SettingsIcon, Link, Shield, Globe } from 'lucide-react';
 
 export default function Settings() {
   const [settings, setSettings] = useState({
-    apiKeys: { openai: '', anthropic: '' },
     readwiseEnabled: false,
     globalModel: 'gpt-4o',
     systemPrefix: '',
@@ -41,7 +40,7 @@ export default function Settings() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-4xl font-extrabold tracking-tight text-textMain mb-2">Platform Settings</h1>
-          <p className="text-textMuted font-medium text-lg">Manage global environment configurations and API keys.</p>
+          <p className="text-textMuted font-medium text-lg">Manage non-secret global platform defaults.</p>
         </div>
         <button 
           onClick={handleSave}
@@ -51,33 +50,6 @@ export default function Settings() {
           <SettingsIcon size={20} className={`stroke-[3px] ${isSaving ? 'animate-spin' : ''}`} />
           {isSaving ? 'Saving...' : 'Save Settings'}
         </button>
-      </div>
-
-      <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm max-w-4xl">
-        <h3 className="text-xl font-bold text-textMain mb-6 flex items-center gap-2"><KeyRound className="text-primary"/> Provider API Keys</h3>
-        
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-textMain">OpenAI API Key</label>
-            <input 
-              type="password" 
-              value={settings.apiKeys.openai || ''}
-              onChange={(e) => setSettings({...settings, apiKeys: {...settings.apiKeys, openai: e.target.value}})}
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
-              placeholder="sk-..."
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-textMain">Anthropic API Key</label>
-            <input 
-              type="password" 
-              value={settings.apiKeys.anthropic || ''}
-              onChange={(e) => setSettings({...settings, apiKeys: {...settings.apiKeys, anthropic: e.target.value}})}
-              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-textMain font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow"
-              placeholder="sk-ant-..."
-            />
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl">
