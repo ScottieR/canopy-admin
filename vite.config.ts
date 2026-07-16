@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
-  envPrefix: ['VITE_', 'ADMIN_API_KEY'],
+  // Never expose server credentials through Vite's client bundle.
+  envPrefix: ['VITE_'],
   plugins: [react()],
   server: {
     proxy: {
