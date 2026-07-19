@@ -18,6 +18,10 @@ const PUBLIC_POSTS = new Set([
   '/api/keeper/chat',
   '/api/agents/add-suggestion',
   '/api/telemetry/event',
+  // Publish & Share (Workstream E): device-token authenticated in the route
+  // handlers themselves — the admin key is not required (or held) by clients.
+  '/api/share/publish',
+  '/api/share/revoke',
 ]);
 
 export function isPublicApiRequest(method, pathname) {

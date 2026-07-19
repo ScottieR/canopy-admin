@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import pg from 'pg';
+import { registerShareRoutes } from './share-routes.js';
 import {
   createAdminAuthMiddleware,
   createRateLimiter,
@@ -227,6 +228,10 @@ app.use((req, res, next) => {
   });
   next();
 });
+// Publish & Share uploads carry a whole self-contained mini-app (≤2 MB), so the
+// publish route gets a scoped parser BEFORE the strict global 128 kb limit —
+// express.json skips bodies that are already parsed.
+app.use('/api/share/publish', express.json({ limit: '3mb', strict: true }));
 app.use(express.json({ limit: '128kb', strict: true }));
 app.use('/api', createRateLimiter({ windowMs: 10 * 60_000, max: 600, keyPrefix: 'api' }));
 app.use(createAdminAuthMiddleware(() => ADMIN_API_KEY));
@@ -242,6 +247,13 @@ app.use('/accessories', express.static(path.join(__dirname, '../shared/public/ac
 // applying an update. Drop new builds into `shared/public/releases/` and reference
 // them by `/releases/<filename>` in `releases.json`.
 app.use('/releases', express.static(RELEASES_DIR));
+
+// ── Publish & Share (Workstream E): static hosting for Canopy mini-apps ──────
+// Device-token auth inside the routes; /share/:id viewer is public by design.
+registerShareRoutes(app, {
+  sharesDir: path.join(__dirname, 'data', 'shares'),
+  createRateLimiter,
+});
 
 // Helper to create CRUD routes for a given file
 if (!fs.existsSync(HABITATS_FILE)) {
