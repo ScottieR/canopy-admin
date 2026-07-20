@@ -1,6 +1,6 @@
 # Canopy control plane
 
-> **Evaluation-only source license:** This repository is publicly available for portfolio and recruiting review. You may clone, build, and run it locally only to evaluate the author's qualifications. Commercial use, production use, redistribution, public deployment, and derivative products are prohibited. See [LICENSE](LICENSE).
+> **Portfolio preview:** Thanks for taking a look. You are welcome to inspect, clone, build, and run this service for evaluation. The source is here to make its architecture and implementation easy to explore. This is a portfolio preview rather than a general open-source release; see [LICENSE](LICENSE) for details.
 
 Authenticated administrative service and public catalog API for the [Canopy desktop app](https://github.com/ScottieR/canopy).
 
@@ -96,6 +96,4 @@ scripts/                  Repeatable operator utilities
 
 ## License
 
-Copyright © 2026 Scottie Ryan. All rights reserved.
-
-This repository is source-available solely for portfolio and recruiting evaluation; it is not open-source software. The limited permission and prohibited uses are stated in [LICENSE](LICENSE).
+This service is shared as a portfolio preview under a limited evaluation license. Reviewers are welcome to inspect, clone, build, and run it. See [LICENSE](LICENSE) for the full terms.
