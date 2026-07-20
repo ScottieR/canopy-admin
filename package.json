@@ -3,11 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite",
+    "server": "node server.js",
     "build": "vite build",
     "test": "node --test server-security.test.js server.integration.test.js share-routes.test.js",
-    "lint": "eslint .",
+    "lint": "eslint src vite.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

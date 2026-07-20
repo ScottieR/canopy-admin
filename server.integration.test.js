@@ -32,10 +32,29 @@ test('public client configuration remains readable with security headers', async
   assert.equal(response.headers.get('x-frame-options'), 'DENY');
 });
 
-test('canonical Canopy helper endpoint is public but rejects empty input before any LLM call', async () => {
+test('server-funded LLM routes require admin authentication before parsing input', async () => {
   const response = await fetch(`${baseUrl}/api/canopy-helper/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ context: { conversation_history: ['must not be sent'] } }),
+  });
+  assert.equal(response.status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: 'test' }),
+  })).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/agents/add-suggestion`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ role: 'Researcher', bookTitle: 'A title' }),
+  })).status, 401);
+});
+
+test('authenticated helper requests are still sanitized before any provider call', async () => {
+  const response = await fetch(`${baseUrl}/api/canopy-helper/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-admin-key': 'integration-admin-key' },
     body: JSON.stringify({ context: { conversation_history: ['must not be sent'] } }),
   });
   assert.equal(response.status, 400);

@@ -13,10 +13,6 @@ const PUBLIC_JSON_GETS = new Set([
 ]);
 
 const PUBLIC_POSTS = new Set([
-  '/api/generate',
-  '/api/canopy-helper/chat',
-  '/api/keeper/chat',
-  '/api/agents/add-suggestion',
   '/api/telemetry/event',
   // Publish & Share (Workstream E): device-token authenticated in the route
   // handlers themselves — the admin key is not required (or held) by clients.

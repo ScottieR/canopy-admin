@@ -1,73 +1,90 @@
-# React + TypeScript + Vite
+# Canopy control plane
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Private administrative service and public catalog API for the [Canopy desktop app](https://github.com/ScottieR/canopy).
 
-Currently, two official plugins are available:
+This repository owns persona, model, pricing, connector, accessory, habitat, and updater metadata. It also contains the internal React administration UI. It is not the agent execution plane: credentials, conversations, workspaces, and model inference for desktop users remain on the user's Mac or go directly to the provider they selected.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Security boundary
 
-## React Compiler
+Public unauthenticated routes are deliberately narrow:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- read-only desktop catalogs and updater manifests;
+- bounded, opt-in aggregate telemetry;
+- device-token-authenticated publish/share operations;
+- a host-allowlisted image proxy.
 
-## Expanding the ESLint configuration
+All mutation, studio-generation, connector-generation, model-sync, release-management, and server-funded LLM routes require `X-Admin-Key`. The desktop application does not possess that key and does not call server-funded LLM routes.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Secrets are loaded from environment variables in production and from an ignored, mode-`0600` `.env` file for local development. Never commit a populated environment file.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Local development
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Requirements: Node.js 20.19 or newer and npm.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm ci
+cp .env.example .env
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Populate only the credentials needed for the feature you are testing:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```text
+ADMIN_API_KEY=<long random admin credential>
+GEMINI_API_KEY=<optional studio key>
+ANTHROPIC_API_KEY=<optional internal helper key>
+MESHY_API_KEY=<optional asset-generation key>
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Prefer the stdin helper so a secret does not appear in shell history:
+
+```bash
+pbpaste | node scripts/set-local-env-secret.mjs ADMIN_API_KEY
+```
+
+Then start the API and Vite UI in separate terminals:
+
+```bash
+npm run server
+```
+
+```bash
+npm run dev
+```
+
+The API listens on `http://localhost:3001` and Vite prints the administration UI URL.
+
+## Validation
+
+```bash
+npm run lint
+npm test
+npm run build
+npm audit --audit-level=high
+```
+
+The tests cover the public-route allowlist, constant-time admin authentication, request sanitization, SSRF defenses, telemetry bounding, release URLs, security headers, CORS, retired screen telemetry, and publish/share authorization.
+
+## Deployment
+
+Pushes to `production` run the full desktop/admin regression gate and deploy to Google Cloud Run through GitHub OIDC. Production credentials are read from Google Secret Manager; the workflow never writes them to the repository or build context.
+
+Required GitHub configuration:
+
+- `CANOPY_DEPLOY_KEY` while the desktop repository remains private;
+- `ALERT_WEBHOOK_URL` if deployment failure alerts are desired;
+- the configured Google Workload Identity provider and deployment service account.
+
+Required Secret Manager entries are listed in `.github/workflows/deploy.yml`.
+
+## Repository map
+
+```text
+server.js                 Express API and control-plane orchestration
+server-security.js        Pure validation, authentication, and sanitization helpers
+share-routes.js           Device-scoped mini-app publishing
+src/                      Internal React administration UI
+shared/                   Runtime catalog data and hosted public assets
+migrations/               Postgres telemetry migrations
+scripts/                  Repeatable operator utilities
+.github/workflows/        Security gates and Cloud Run deployment
 ```

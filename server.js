@@ -356,7 +356,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
   }
 });
 
-// --- GENERATION ENDPOINT (IP PROTECTED) ---
+// --- GENERATION ENDPOINT (ADMIN AUTHENTICATED) ---
 const MONUMENT_VALLEY_PROMPT = `
 Global Aesthetic & Rendering Parameters
 To capture the specific "Monument Valley" feel across all assets, every prompt should include these baseline rendering instructions:
@@ -607,8 +607,8 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
       return res.status(403).json({ error: "Book rejected as unsafe" });
     }
 
-    // Public clients may ask for moderation, but cannot mutate the global persona
-    // catalog. The title is already stored in the user's local onboarding draft.
+    // This legacy moderation tool is admin-only. Desktop reading context stays
+    // in the user's local onboarding draft and never calls this route.
     return res.json({ success: true, accepted: true, message: "Suggestion accepted locally" });
   } catch (e) {
     console.error("Book moderation failed:", e);

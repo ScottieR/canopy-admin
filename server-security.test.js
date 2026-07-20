@@ -16,8 +16,10 @@ import {
 test('admin auth has a narrow public surface', () => {
   assert.equal(isPublicApiRequest('GET', '/api/models'), true);
   assert.equal(isPublicApiRequest('GET', '/api/updates/darwin-aarch64/0.1.0'), true);
-  assert.equal(isPublicApiRequest('POST', '/api/keeper/chat'), true);
-  assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/chat'), true);
+  assert.equal(isPublicApiRequest('POST', '/api/generate'), false);
+  assert.equal(isPublicApiRequest('POST', '/api/keeper/chat'), false);
+  assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/chat'), false);
+  assert.equal(isPublicApiRequest('POST', '/api/agents/add-suggestion'), false);
   assert.equal(isPublicApiRequest('POST', '/api/usage'), false);
   assert.equal(isPublicApiRequest('GET', '/api/stats'), false);
   assert.equal(isPublicApiRequest('GET', '/api/meshy-check/task'), false);
