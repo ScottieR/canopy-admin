@@ -12,6 +12,7 @@ import {
   createAdminAuthMiddleware,
   createRateLimiter,
   isAllowedMeshyAssetUrl,
+  sanitizeCanopyBootstrapRequest,
   sanitizeCanopyHelperRequest,
   sanitizePublicSettings,
   sanitizeTelemetryProperties,
@@ -237,6 +238,8 @@ app.use('/api', createRateLimiter({ windowMs: 10 * 60_000, max: 600, keyPrefix: 
 app.use(createAdminAuthMiddleware(() => ADMIN_API_KEY));
 const generationRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 10, keyPrefix: 'generate' });
 const helperRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'helper' });
+const bootstrapBurstRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 12, keyPrefix: 'helper-bootstrap-burst' });
+const bootstrapDailyRateLimit = createRateLimiter({ windowMs: 24 * 60 * 60_000, max: 60, keyPrefix: 'helper-bootstrap-day' });
 const suggestionRateLimit = createRateLimiter({ windowMs: 60 * 60_000, max: 5, keyPrefix: 'suggestion' });
 const telemetryRateLimit = createRateLimiter({ windowMs: 60_000, max: 120, keyPrefix: 'telemetry' });
 const imageProxyRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'image-proxy' });
@@ -511,10 +514,12 @@ Hard rules:
 - You cannot modify the user's agents or settings; you guide, they click.
 - If something is truly beyond you, suggest the agent's Diagnostics tab and offer to interpret what it reports.`;
 
-app.post(['/api/canopy-helper/chat', '/api/keeper/chat'], helperRateLimit, async (req, res) => {
+async function handleCanopyHelper(req, res, bootstrapOnly = false) {
   let safeRequest;
   try {
-    safeRequest = sanitizeCanopyHelperRequest(req.body);
+    safeRequest = bootstrapOnly
+      ? sanitizeCanopyBootstrapRequest(req.body)
+      : sanitizeCanopyHelperRequest(req.body);
   } catch (error) {
     return res.status(400).json({ error: error.message });
   }
@@ -570,7 +575,21 @@ app.post(['/api/canopy-helper/chat', '/api/keeper/chat'], helperRateLimit, async
     console.error('Canopy helper endpoint failure:', e);
     return res.status(500).json({ error: 'canopy_helper_internal_error' });
   }
-});
+}
+
+// The public route is deliberately narrower than the admin diagnostics route:
+// one setup message, onboarding state only, and both burst and daily cost caps.
+app.post(
+  '/api/canopy-helper/bootstrap',
+  bootstrapBurstRateLimit,
+  bootstrapDailyRateLimit,
+  (req, res) => handleCanopyHelper(req, res, true),
+);
+app.post(
+  ['/api/canopy-helper/chat', '/api/keeper/chat'],
+  helperRateLimit,
+  (req, res) => handleCanopyHelper(req, res, false),
+);
 
 app.post('/api/agents/add-suggestion', suggestionRateLimit, async (req, res) => {
   const { role, bookTitle } = req.body;
@@ -1557,7 +1576,9 @@ User Request: ${prompt}`;
       const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 100000)}`;
       return {
         prompt: item,
-        url: `http://localhost:3001/api/proxy-image?url=${encodeURIComponent(pollinationsUrl)}`,
+        // Relative URLs work in local development and in the deployed admin
+        // app. A hard-coded localhost URL made production previews disappear.
+        url: `/api/proxy-image?url=${encodeURIComponent(pollinationsUrl)}`,
         originalUrl: pollinationsUrl
       };
     });

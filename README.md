@@ -13,7 +13,7 @@ Public unauthenticated routes are deliberately narrow:
 - device-token-authenticated publish/share operations;
 - a host-allowlisted image proxy.
 
-All mutation, studio-generation, connector-generation, model-sync, release-management, and server-funded LLM routes require `X-Admin-Key`. The desktop application does not possess that key and does not call server-funded LLM routes.
+All mutation, studio-generation, connector-generation, model-sync, release-management, and general server-funded LLM routes require `X-Admin-Key`. The only public inference endpoint is `/api/canopy-helper/bootstrap`, which accepts one current first-run setup request, strips all non-onboarding context, and has burst and daily IP limits. The desktop does not possess the admin key and switches Eddy to the user's provider as soon as a provider credential is available.
 
 Secrets are loaded from environment variables in production and from an ignored, mode-`0600` `.env` file for local development. Never commit a populated environment file.
 

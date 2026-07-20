@@ -4,6 +4,7 @@ import {
   constantTimeSecretEqual,
   isAllowedMeshyAssetUrl,
   isPublicApiRequest,
+  sanitizeCanopyBootstrapRequest,
   sanitizeCanopyHelperRequest,
   sanitizePublicSettings,
   sanitizeTelemetryProperties,
@@ -16,6 +17,7 @@ import {
 test('admin auth has a narrow public surface', () => {
   assert.equal(isPublicApiRequest('GET', '/api/models'), true);
   assert.equal(isPublicApiRequest('GET', '/api/updates/darwin-aarch64/0.1.0'), true);
+  assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/bootstrap'), true);
   assert.equal(isPublicApiRequest('POST', '/api/generate'), false);
   assert.equal(isPublicApiRequest('POST', '/api/keeper/chat'), false);
   assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/chat'), false);
@@ -24,6 +26,42 @@ test('admin auth has a narrow public surface', () => {
   assert.equal(isPublicApiRequest('GET', '/api/stats'), false);
   assert.equal(isPublicApiRequest('GET', '/api/meshy-check/task'), false);
   assert.equal(isPublicApiRequest('POST', '/api/connectors'), false);
+});
+
+test('public Eddy bootstrap accepts onboarding state only and drops every extra field', () => {
+  const sanitized = sanitizeCanopyBootstrapRequest({
+    message: 'Help me design a research agent',
+    messages: [{ role: 'user', content: 'private prior turn' }],
+    context: {
+      runtime_ready: true,
+      active_view: 'architect',
+      onboarding: { in_onboarding: true, draft_step: 2, private_draft: 'secret personality' },
+      agents: [{ name: 'Patch', instructions: 'private SOUL.md' }],
+      conversation_history: ['private history'],
+      credentials: 'secret key',
+      raw_logs: 'private logs',
+    },
+    continuity: { topic: 'diagnostics', target_agent: 'Patch' },
+  });
+
+  assert.deepEqual(sanitized, {
+    message: 'Help me design a research agent',
+    context: {
+      runtime_ready: true,
+      active_view: 'onboarding',
+      onboarding: { in_onboarding: true, draft_step: 2 },
+    },
+    continuity: { topic: 'onboarding' },
+  });
+  const encoded = JSON.stringify(sanitized);
+  for (const privateValue of [
+    'private prior turn', 'secret personality', 'Patch', 'private SOUL.md',
+    'private history', 'secret key', 'private logs', 'diagnostics',
+  ]) assert.equal(encoded.includes(privateValue), false);
+  assert.throws(() => sanitizeCanopyBootstrapRequest({
+    message: 'hello',
+    context: { onboarding: { in_onboarding: false } },
+  }));
 });
 
 test('Canopy helper sends one user message and an allowlisted diagnostic snapshot only', () => {

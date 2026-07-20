@@ -14,6 +14,10 @@ const PUBLIC_JSON_GETS = new Set([
 
 const PUBLIC_POSTS = new Set([
   '/api/telemetry/event',
+  // First-run Eddy assistance is intentionally the only public, server-funded
+  // inference route. The route applies a second onboarding-only sanitizer and
+  // strict cost limits before it can reach a provider.
+  '/api/canopy-helper/bootstrap',
   // Publish & Share (Workstream E): device-token authenticated in the route
   // handlers themselves — the admin key is not required (or held) by clients.
   '/api/share/publish',
@@ -143,6 +147,41 @@ export function sanitizeCanopyHelperRequest(body) {
   };
 
   return { message: latestMessage.trim(), context: safeContext, continuity: safeContinuity };
+}
+
+/**
+ * Public first-run helper boundary.
+ *
+ * Unlike the authenticated diagnostics helper, this accepts only one current
+ * message and the three setup fields Eddy needs while onboarding. A caller
+ * cannot smuggle prior turns, agent records, logs, credentials, or stored
+ * instructions through the context object.
+ */
+export function sanitizeCanopyBootstrapRequest(body) {
+  const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  if (typeof input.message !== 'string' || !input.message.trim() || input.message.length > 4_000) {
+    throw new Error('message must be 1-4000 characters');
+  }
+
+  const context = input.context && typeof input.context === 'object' && !Array.isArray(input.context)
+    ? input.context
+    : {};
+  if (context.onboarding?.in_onboarding !== true) {
+    throw new Error('bootstrap assistance is available only during onboarding');
+  }
+  const draftStep = Number.isInteger(context.onboarding?.draft_step)
+    ? Math.max(0, Math.min(100, context.onboarding.draft_step))
+    : null;
+
+  return {
+    message: input.message.trim(),
+    context: {
+      runtime_ready: Boolean(context.runtime_ready),
+      active_view: 'onboarding',
+      onboarding: { in_onboarding: true, draft_step: draftStep },
+    },
+    continuity: { topic: 'onboarding' },
+  };
 }
 
 export function validateConnector(candidate) {

@@ -1,7 +1,11 @@
 import { useState, useRef } from 'react';
 import { UploadCloud, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 
-export function AccessoryStudio({ onAddAccessory }: { onAddAccessory: (path: string) => void }) {
+type GeneratedAccessoryMetadata = { name: string; description: string };
+
+export function AccessoryStudio({ onAddAccessory }: {
+  onAddAccessory: (path: string, metadata?: GeneratedAccessoryMetadata) => void;
+}) {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<any[]>([]);
