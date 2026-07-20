@@ -21,8 +21,13 @@ before(async () => {
 
 after(async () => {
   if (server) {
-    server.closeAllConnections?.();
-    await new Promise(resolve => server.close(resolve));
+    await new Promise((resolve, reject) => {
+      // Stop accepting new keep-alive requests before terminating the sockets
+      // opened by Node's fetch client. Calling closeAllConnections first can
+      // leave server.close() waiting forever on newer Node releases.
+      server.close(error => error ? reject(error) : resolve());
+      server.closeAllConnections?.();
+    });
   }
 });
 
@@ -31,6 +36,13 @@ test('public client configuration remains readable with security headers', async
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(response.headers.get('x-frame-options'), 'DENY');
+  const models = await response.json();
+  assert.ok(Array.isArray(models.models) && models.models.length > 0);
+
+  const agentsResponse = await fetch(`${baseUrl}/api/agents`);
+  assert.equal(agentsResponse.status, 200);
+  const agents = await agentsResponse.json();
+  assert.ok(agents.Researcher, 'clean checkouts must include the public persona catalog');
 });
 
 test('server-funded LLM routes require admin authentication before parsing input', async () => {

@@ -8,7 +8,6 @@ import * as THREE from 'three';
 import { SkeletonUtils } from 'three-stdlib';
 import { AdminGLBAgent } from '../components/3d/AdminGLBAgent';
 import { AccessoryStudio } from '../components/AccessoryStudio';
-import RAW_AGENT_TYPE_INFO from '../../../shared/agents.json';
 import BookSearch from '../components/BookSearch';
 import { resolveAssetUrl } from '../utils/assetBaseUrl';
 
@@ -86,7 +85,7 @@ function HabitatPreview({ habitatId, habitats }: { habitatId?: string | null, ha
 }
 
 export default function AgentManager() {
-  const [rawJSON, setRawJSON] = useState<Record<string, any>>(RAW_AGENT_TYPE_INFO);
+  const [rawJSON, setRawJSON] = useState<Record<string, any>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<any>(null);
   const [editingOriginalId, setEditingOriginalId] = useState<string | null>(null);
@@ -104,7 +103,7 @@ export default function AgentManager() {
     fetch('/api/agents')
       .then(res => res.json())
       .then(data => setRawJSON(data))
-      .catch(err => console.warn("Local API server not running, using static JSON import.", err));
+      .catch(err => console.warn("Could not load agent templates from the admin API.", err));
 
     fetch('/api/library')
       .then(res => res.json())
@@ -277,7 +276,7 @@ export default function AgentManager() {
                   {/* 3D Preview Thumbnail */}
                   <div className="w-16 h-16 rounded-xl overflow-hidden relative border border-border shadow-inner" style={{ backgroundColor: agent.habitatColor || '#D6A3B9' }}>
                     {agent.image ? (
-                      <img src={agent.image.startsWith('http') ? agent.image : `${IMG_BASE}${agent.image}`} alt={agent.name} className="w-full h-full object-cover" />
+                      <img src={resolveAssetUrl(agent.image)} alt={agent.name} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full" style={{ backgroundColor: agent.robeColor }}></div>
                     )}
@@ -580,7 +579,7 @@ export default function AgentManager() {
                               return (
                                 <div key={path} className="flex items-center gap-3 p-2 bg-background border border-border rounded-xl">
                                   <div className="w-12 h-12 bg-white rounded-lg flex-shrink-0 flex items-center justify-center p-1 border border-border/50">
-                                    <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain" />
+                                    <img src={resolveAssetUrl(path)} alt="accessory" className="w-full h-full object-contain" />
                                   </div>
                                   <div className="flex-1">
                                     <p className="text-sm font-bold text-textMain leading-tight">{item.name || path.split('/').pop()}</p>
@@ -704,7 +703,7 @@ export default function AgentManager() {
                                   }}
                                   className={`aspect-square rounded-lg border-2 overflow-hidden transition-all duration-200 relative group ${isAttached ? 'border-primary ring-2 ring-primary/20 shadow-md bg-primary/5 z-10' : 'border-border bg-white hover:border-black/20'}`}
                                 >
-                                  <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="accessory" className="w-full h-full object-contain p-1" />
+                                  <img src={resolveAssetUrl(path)} alt="accessory" className="w-full h-full object-contain p-1" />
                                   {isAttached && <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-white" />}
 
                                   {/* Type Badge */}

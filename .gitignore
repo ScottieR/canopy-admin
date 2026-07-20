@@ -27,3 +27,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Heavy/generated visual assets are deployed from server-side storage rather
+# than committed. Keep only the directory contract documentation in Git.
+shared/public/*
+!shared/public/README.md

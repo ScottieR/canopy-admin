@@ -5,6 +5,7 @@ import { AccessoryStudio } from '../components/AccessoryStudio';
 import { AccessoryPlacementScene } from '../components/3d/AccessoryPlacementScene';
 import { Canvas } from '@react-three/fiber';
 import React from 'react';
+import { resolveAssetUrl } from '../utils/assetBaseUrl';
 
 class ErrorBoundary extends React.Component<{ fallback: React.ReactNode, children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: any) {
@@ -279,7 +280,7 @@ export default function AccessoryManager() {
                       onClick={() => setEditingPath(path)}
                       className={`relative aspect-square rounded-xl flex items-center justify-center cursor-pointer transition overflow-hidden ${isVisible ? "bg-white border-2 border-transparent shadow-sm hover:border-primary/20" : "bg-outline-variant/10 border-2 border-outline-variant/20 opacity-40 hover:opacity-100 mix-blend-luminosity hover:mix-blend-normal"}`}
                     >
-                      <img src={path.startsWith('http') ? path : `${IMG_BASE}${path}`} alt="Accessory" className="w-[80%] h-[80%] object-contain" />
+                      <img src={resolveAssetUrl(path)} alt="Accessory" className="w-[80%] h-[80%] object-contain" />
                       {!isVisible && <div className="absolute inset-0 flex items-center justify-center bg-black/5"><EyeOff size={16} className="text-textMain/50" /></div>}
                       <div className="absolute bottom-1 left-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-md rounded-md py-1 px-1.5 border border-border text-[8px] font-bold text-center truncate">
                         {data.items[path]?.name || "Unnamed"}
@@ -660,7 +661,7 @@ export default function AccessoryManager() {
                     <Suspense fallback={null}>
                       <AccessoryPlacementScene
                         key={`${editingPath}-${version}`}
-                        accessoryGlbPath={editingPath.startsWith('http') ? editingPath.replace('.png', '.glb') : `${IMG_BASE}${editingPath.replace('.png', '.glb')}?v=${version}`}
+                        accessoryGlbPath={`${resolveAssetUrl(editingPath.replace('.png', '.glb'))}?v=${version}`}
                         boneName={data.items[editingPath]?.bone || "Head"}
                         offset={data.items[editingPath]?.offset || [0, 0, 0]}
                         rotation={data.items[editingPath]?.rotation || [0, 0, 0]}
@@ -907,7 +908,7 @@ function AccessoryBakeAction({ path, onBakeComplete }: { path: string, onBakeCom
 
   useEffect(() => {
     // Check if glb exists
-    const glbUrl = path.startsWith('http') ? path.replace('.png', '.glb') : `${IMG_BASE}${path.replace('.png', '.glb')}`;
+    const glbUrl = resolveAssetUrl(path.replace('.png', '.glb'));
     fetch(glbUrl, { method: 'HEAD' })
       .then(res => {
         setGlbExists(res.ok);

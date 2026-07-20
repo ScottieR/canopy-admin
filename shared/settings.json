@@ -1,0 +1,6 @@
+{
+  "readwiseEnabled": true,
+  "globalModel": "gpt-4o",
+  "systemPrefix": "You are a specialized Canopy agent. Follow user instructions carefully.",
+  "userTemplate": "# USER.md - Your Human's Preferences\n\nRecord durable preferences and relevant facts here. Treat this file as private user context, update it when corrected, and do not expose it outside the agent's authorized workspace.\n"
+}

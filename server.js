@@ -85,7 +85,24 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 app.set('trust proxy', 1);
 
-const DATA_DIR = path.join(__dirname, '../shared');
+let configuredAssetDir = process.env.CANOPY_ASSET_DIR || '';
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (!configuredAssetDir && fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const assetDirMatch = envContent.match(/^CANOPY_ASSET_DIR=(.+)$/m);
+    if (assetDirMatch) configuredAssetDir = assetDirMatch[1].trim().replace(/^["']|["']$/g, '');
+  }
+} catch (e) {
+  console.warn('Could not load CANOPY_ASSET_DIR from .env:', e);
+}
+
+const DATA_DIR = path.join(__dirname, 'shared');
+const LEGACY_ASSET_DIR = path.join(__dirname, '../shared/public');
+const BUNDLED_ASSET_DIR = path.join(DATA_DIR, 'public');
+const ASSET_DIR = configuredAssetDir
+  ? path.resolve(configuredAssetDir)
+  : (fs.existsSync(LEGACY_ASSET_DIR) ? LEGACY_ASSET_DIR : BUNDLED_ASSET_DIR);
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
@@ -96,7 +113,11 @@ const ACCESSORIES_FILE = path.join(DATA_DIR, 'accessories.json');
 const HABITATS_FILE = path.join(DATA_DIR, 'habitats.json');
 const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
 const RELEASES_FILE = path.join(DATA_DIR, 'releases.json');
-const RELEASES_DIR = path.join(__dirname, '../shared/public/releases');
+const RELEASES_DIR = path.join(ASSET_DIR, 'releases');
+
+for (const assetSubdirectory of ['agents', 'models', 'accessories', 'releases']) {
+  fs.mkdirSync(path.join(ASSET_DIR, assetSubdirectory), { recursive: true });
+}
 
 // ─── Anonymized usage telemetry (Postgres) ──────────────────────────────────
 //
@@ -171,9 +192,6 @@ if (pgPool) {
 // `releases.json` is the source of truth for the in-app updater — when a
 // new build is published we write a row in here and Tauri clients pick it
 // up on next launch via `GET /api/updates/:target/:currentVersion`.
-if (!fs.existsSync(RELEASES_DIR)) {
-  fs.mkdirSync(RELEASES_DIR, { recursive: true });
-}
 if (!fs.existsSync(RELEASES_FILE)) {
   fs.writeFileSync(RELEASES_FILE, JSON.stringify({ latest: null, releases: [] }, null, 2), 'utf8');
 }
@@ -243,9 +261,9 @@ const bootstrapDailyRateLimit = createRateLimiter({ windowMs: 24 * 60 * 60_000, 
 const suggestionRateLimit = createRateLimiter({ windowMs: 60 * 60_000, max: 5, keyPrefix: 'suggestion' });
 const telemetryRateLimit = createRateLimiter({ windowMs: 60_000, max: 120, keyPrefix: 'telemetry' });
 const imageProxyRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 30, keyPrefix: 'image-proxy' });
-app.use('/agents', express.static(path.join(__dirname, '../shared/public/agents')));
-app.use('/models', express.static(path.join(__dirname, '../shared/public/models')));
-app.use('/accessories', express.static(path.join(__dirname, '../shared/public/accessories')));
+app.use('/agents', express.static(path.join(ASSET_DIR, 'agents')));
+app.use('/models', express.static(path.join(ASSET_DIR, 'models')));
+app.use('/accessories', express.static(path.join(ASSET_DIR, 'accessories')));
 // Serve the actual update artifacts (`.tar.gz`, `.sig`) that Tauri downloads when
 // applying an update. Drop new builds into `shared/public/releases/` and reference
 // them by `/releases/<filename>` in `releases.json`.
@@ -458,7 +476,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
         habitatLabel: parsedParams.habitatLabel || "The Void",
         accessories: (parsedParams.accessories || []).filter(acc => {
           if (!acc || typeof acc !== 'string') return false;
-          return fs.existsSync(path.join(__dirname, '../shared/public', acc.replace(/^\/+/, '')));
+          return fs.existsSync(path.join(ASSET_DIR, acc.replace(/^\/+/, '')));
         })
       }
     });
@@ -1671,7 +1689,7 @@ app.get('/api/proxy-image', imageProxyRateLimit, async (req, res) => {
 });
 
 async function uploadToPublicBridge(localPath) {
-  const fullPath = path.join(__dirname, '../shared/public', localPath);
+  const fullPath = path.join(ASSET_DIR, localPath);
   if (!fs.existsSync(fullPath)) throw new Error("Local file not found at: " + fullPath);
 
   console.log(`[BRIDGE] Uploading local asset to public bridge: ${localPath}`);
@@ -1777,7 +1795,7 @@ app.post('/api/meshy-task', async (req, res) => {
         const imageType = (imgRes.headers.get('content-type') || '').split(';')[0].toLowerCase();
         if (!['image/png', 'image/jpeg', 'image/webp'].includes(imageType)) throw new Error('Unexpected source image type');
         const imgBuffer = await readBodyLimited(imgRes, 10 * 1024 * 1024);
-        const pngSavePath = path.join(__dirname, '../shared/public/accessories', `meshy_${taskId}.png`);
+        const pngSavePath = path.join(ASSET_DIR, 'accessories', `meshy_${taskId}.png`);
         fs.writeFileSync(pngSavePath, imgBuffer);
       }
     } catch (e) {
@@ -1820,7 +1838,7 @@ app.get('/api/meshy-check/:taskId', async (req, res) => {
         }
       }
 
-      const savePath = path.join(__dirname, '../shared/public/accessories', fileName);
+      const savePath = path.join(ASSET_DIR, 'accessories', fileName);
       fs.writeFileSync(savePath, buffer);
 
       console.log(`[MESHY] Saved GLB to: ${savePath}`);
@@ -1861,7 +1879,7 @@ app.post('/api/upload-agent-image', upload.single('image'), (req, res) => {
       return res.status(415).json({ error: 'Only valid PNG, JPEG, or WebP images are allowed' });
     }
     const fileName = `upload_${crypto.randomUUID()}${ext}`;
-    const savePath = path.join(__dirname, '../shared/public/agents', fileName);
+    const savePath = path.join(ASSET_DIR, 'agents', fileName);
     fs.renameSync(file.path, savePath);
 
     res.json({ success: true, imagePath: `/agents/${fileName}` });
@@ -1887,7 +1905,7 @@ app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
 
     for (const { file, ext } of validatedFiles) {
       const fileName = `upload_${crypto.randomUUID()}${ext}`;
-      const savePath = path.join(__dirname, '../shared/public/accessories', fileName);
+      const savePath = path.join(ASSET_DIR, 'accessories', fileName);
       fs.renameSync(file.path, savePath);
 
       const relativePath = `/accessories/${fileName}`;

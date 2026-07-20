@@ -1,6 +1,8 @@
 # Canopy control plane
 
-Private administrative service and public catalog API for the [Canopy desktop app](https://github.com/ScottieR/canopy).
+> **Evaluation-only source license:** This repository is publicly available for portfolio and recruiting review. You may clone, build, and run it locally only to evaluate the author's qualifications. Commercial use, production use, redistribution, public deployment, and derivative products are prohibited. See [LICENSE](LICENSE).
+
+Authenticated administrative service and public catalog API for the [Canopy desktop app](https://github.com/ScottieR/canopy).
 
 This repository owns persona, model, pricing, connector, accessory, habitat, and updater metadata. It also contains the internal React administration UI. It is not the agent execution plane: credentials, conversations, workspaces, and model inference for desktop users remain on the user's Mac or go directly to the provider they selected.
 
@@ -33,6 +35,7 @@ ADMIN_API_KEY=<long random admin credential>
 GEMINI_API_KEY=<optional studio key>
 ANTHROPIC_API_KEY=<optional internal helper key>
 MESHY_API_KEY=<optional asset-generation key>
+CANOPY_ASSET_DIR=<optional absolute path to the server-side raster/GLB corpus>
 ```
 
 Prefer the stdin helper so a secret does not appear in shell history:
@@ -52,6 +55,8 @@ npm run dev
 ```
 
 The API listens on `http://localhost:3001` and Vite prints the administration UI URL.
+
+The JSON catalogs required by the API are committed in `shared/`, so a clean checkout builds and starts without the surrounding development workspace. The heavyweight raster and GLB corpus is intentionally deployed separately from source control. When working with those assets locally, set `CANOPY_ASSET_DIR` to that server-side directory; the API continues to serve files through `/agents`, `/models`, and `/accessories`. The desktop app does not bundle those persona or 3D assets into its own `public/` directory.
 
 ## Validation
 
@@ -88,3 +93,9 @@ migrations/               Postgres telemetry migrations
 scripts/                  Repeatable operator utilities
 .github/workflows/        Security gates and Cloud Run deployment
 ```
+
+## License
+
+Copyright © 2026 Scottie Ryan. All rights reserved.
+
+This repository is source-available solely for portfolio and recruiting evaluation; it is not open-source software. The limited permission and prohibited uses are stated in [LICENSE](LICENSE).
