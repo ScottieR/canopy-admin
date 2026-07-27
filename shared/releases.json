@@ -1,4 +1,20 @@
 {
-  "latest": null,
-  "releases": []
+  "latest": "0.2.0",
+  "releases": [
+    {
+      "version": "0.2.0",
+      "notes": "Canopy 0.2.0",
+      "pub_date": "2026-07-27T22:07:50.660Z",
+      "platforms": {
+        "darwin-aarch64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbC9hT3cvSXF3Ni9nWlFtaWRMSnBOdnMwOVB5akxwdDhQcGwrM2kzOWRJdHRydzhUQUVsUXhuZ1dHbktsaFY3d3l4a2xYeEQ0bVB5TlRwRkJObC9HYjlZbDlSbDd1dndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MTkwMDU2CWZpbGU6Q2Fub3B5LmFwcC50YXIuZ3oKTTFaV2Y4am9BMjZPaTBQSDY4TUdwWEJpc25hQmtGZU9KTTQrZEUrbExHckp2elBRNkRoUEpkOE55U25XN1U2Z1R6cTVKYnhmYWpGbjV6RWJXcjhXQWc9PQo=",
+          "url": "https://github.com/ScottieR/canopy/releases/download/v0.2.0/Canopy_0.2.0_universal.app.tar.gz"
+        },
+        "darwin-x86_64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbC9hT3cvSXF3Ni9nWlFtaWRMSnBOdnMwOVB5akxwdDhQcGwrM2kzOWRJdHRydzhUQUVsUXhuZ1dHbktsaFY3d3l4a2xYeEQ0bVB5TlRwRkJObC9HYjlZbDlSbDd1dndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MTkwMDU2CWZpbGU6Q2Fub3B5LmFwcC50YXIuZ3oKTTFaV2Y4am9BMjZPaTBQSDY4TUdwWEJpc25hQmtGZU9KTTQrZEUrbExHckp2elBRNkRoUEpkOE55U25XN1U2Z1R6cTVKYnhmYWpGbjV6RWJXcjhXQWc9PQo=",
+          "url": "https://github.com/ScottieR/canopy/releases/download/v0.2.0/Canopy_0.2.0_universal.app.tar.gz"
+        }
+      }
+    }
+  ]
 }
