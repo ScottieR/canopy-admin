@@ -1,4 +1,4 @@
-import { NavLink, Routes, Route, Navigate } from 'react-router-dom';
+import { NavLink, Routes, Route, Navigate } from 'react-router';
 import { LayoutDashboard, Users, Settings as SettingsIcon, BookOpen, Shirt, Cpu, Layers, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Dashboard from './pages/Dashboard';
