@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 
 const PUBLIC_JSON_GETS = new Set([
+  // Onboarding UX knobs — variant label + non-sensitive flags, fetched by
+  // every client at wizard mount (the admin tuning loop).
+  '/api/onboarding-config',
   '/api/connectors',
   '/api/agents',
   '/api/library',
@@ -15,9 +18,12 @@ const PUBLIC_JSON_GETS = new Set([
 const PUBLIC_POSTS = new Set([
   '/api/telemetry/event',
   // First-run Eddy assistance is intentionally the only public, server-funded
-  // inference route. The route applies a second onboarding-only sanitizer and
+  // language route. The route applies a second onboarding-only sanitizer and
   // strict cost limits before it can reach a provider.
   '/api/canopy-helper/bootstrap',
+  // Onboarding voice previews are similarly bounded: one short sample, one
+  // allowlisted voice id, onboarding state only, and no user credentials.
+  '/api/canopy-helper/voice-preview',
   // Publish & Share (Workstream E): device-token authenticated in the route
   // handlers themselves — the admin key is not required (or held) by clients.
   '/api/share/publish',
@@ -181,6 +187,44 @@ export function sanitizeCanopyBootstrapRequest(body) {
       onboarding: { in_onboarding: true, draft_step: draftStep },
     },
     continuity: { topic: 'onboarding' },
+  };
+}
+
+const CANOPY_VOICE_PREVIEW_IDS = new Set([
+  'alloy',
+  'echo',
+  'fable',
+  'nova',
+  'onyx',
+  'shimmer',
+]);
+
+export function sanitizeCanopyVoicePreviewRequest(body) {
+  const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 600) {
+    throw new Error('text must be 1-600 characters');
+  }
+  if (typeof input.voice !== 'string' || !CANOPY_VOICE_PREVIEW_IDS.has(input.voice)) {
+    throw new Error('voice must be one of the allowlisted Canopy preview voices');
+  }
+
+  const context = input.context && typeof input.context === 'object' && !Array.isArray(input.context)
+    ? input.context
+    : {};
+  if (context.onboarding?.in_onboarding !== true) {
+    throw new Error('voice preview is available only during onboarding');
+  }
+  const draftStep = Number.isInteger(context.onboarding?.draft_step)
+    ? Math.max(0, Math.min(100, context.onboarding.draft_step))
+    : null;
+
+  return {
+    text: input.text.trim(),
+    voice: input.voice,
+    context: {
+      active_view: 'onboarding',
+      onboarding: { in_onboarding: true, draft_step: draftStep },
+    },
   };
 }
 

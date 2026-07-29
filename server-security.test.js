@@ -6,6 +6,7 @@ import {
   isPublicApiRequest,
   sanitizeCanopyBootstrapRequest,
   sanitizeCanopyHelperRequest,
+  sanitizeCanopyVoicePreviewRequest,
   sanitizePublicSettings,
   sanitizeTelemetryProperties,
   sanitizeTelemetryMetrics,
@@ -18,6 +19,7 @@ test('admin auth has a narrow public surface', () => {
   assert.equal(isPublicApiRequest('GET', '/api/models'), true);
   assert.equal(isPublicApiRequest('GET', '/api/updates/darwin-aarch64/0.1.0'), true);
   assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/bootstrap'), true);
+  assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/voice-preview'), true);
   assert.equal(isPublicApiRequest('POST', '/api/generate'), false);
   assert.equal(isPublicApiRequest('POST', '/api/keeper/chat'), false);
   assert.equal(isPublicApiRequest('POST', '/api/canopy-helper/chat'), false);
@@ -60,6 +62,37 @@ test('public Eddy bootstrap accepts onboarding state only and drops every extra 
   ]) assert.equal(encoded.includes(privateValue), false);
   assert.throws(() => sanitizeCanopyBootstrapRequest({
     message: 'hello',
+    context: { onboarding: { in_onboarding: false } },
+  }));
+});
+
+test('public onboarding voice preview accepts one short sample and strips extra fields', () => {
+  const sanitized = sanitizeCanopyVoicePreviewRequest({
+    text: 'I can keep your mornings clear and your inbox lighter.',
+    voice: 'alloy',
+    context: {
+      active_view: 'architect',
+      onboarding: { in_onboarding: true, draft_step: 2, privateDraft: 'secret' },
+      agents: [{ name: 'Patch', instructions: 'private SOUL.md' }],
+    },
+    credentials: 'secret key',
+  });
+
+  assert.deepEqual(sanitized, {
+    text: 'I can keep your mornings clear and your inbox lighter.',
+    voice: 'alloy',
+    context: {
+      active_view: 'onboarding',
+      onboarding: { in_onboarding: true, draft_step: 2 },
+    },
+  });
+  const encoded = JSON.stringify(sanitized);
+  for (const privateValue of ['Patch', 'private SOUL.md', 'secret', 'architect']) {
+    assert.equal(encoded.includes(privateValue), false);
+  }
+  assert.throws(() => sanitizeCanopyVoicePreviewRequest({
+    text: 'hello',
+    voice: 'alloy',
     context: { onboarding: { in_onboarding: false } },
   }));
 });

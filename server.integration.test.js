@@ -21,13 +21,26 @@ before(async () => {
 
 after(async () => {
   if (server) {
-    await new Promise((resolve, reject) => {
-      // Stop accepting new keep-alive requests before terminating the sockets
-      // opened by Node's fetch client. Calling closeAllConnections first can
-      // leave server.close() waiting forever on newer Node releases.
-      server.close(error => error ? reject(error) : resolve());
+    await Promise.race([
+      new Promise((resolve, reject) => {
+        // Node's fetch client can leave both idle and active keep-alive sockets
+        // around. Close idle ones first, begin shutdown, then drop any remaining
+        // open sockets on the next tick so the callback does not hang.
+        server.closeIdleConnections?.();
+        server.close(error => error ? reject(error) : resolve());
+        setTimeout(() => server.closeAllConnections?.(), 0);
+      }),
+      new Promise(resolve => setTimeout(resolve, 1_000)),
+    ]);
+    try {
+      // Node's fetch client can leave both idle and active keep-alive sockets
+      // around long enough to confuse the test runner; aggressively scrub
+      // anything still left after the bounded shutdown attempt above.
+      server.closeIdleConnections?.();
       server.closeAllConnections?.();
-    });
+    } catch {
+      // Ignore best-effort cleanup failures in teardown.
+    }
   }
 });
 
@@ -69,6 +82,20 @@ test('first-run Eddy bootstrap is public but rejects non-onboarding payloads', a
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message: 'hello', context: { onboarding: { in_onboarding: false } } }),
+  });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /only during onboarding/);
+});
+
+test('onboarding voice preview is public but rejects non-onboarding payloads', async () => {
+  const response = await fetch(`${baseUrl}/api/canopy-helper/voice-preview`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Hello there',
+      voice: 'alloy',
+      context: { onboarding: { in_onboarding: false } },
+    }),
   });
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /only during onboarding/);

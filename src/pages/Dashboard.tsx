@@ -41,6 +41,9 @@ export default function Dashboard() {
   const [popularityMetric, setPopularityMetric] = useState<'usage' | 'downloads'>('usage');
   const [funnel, setFunnel] = useState<any>(null);
   const [retention, setRetention] = useState<any>(null);
+  const [evalRuns, setEvalRuns] = useState<any[]>([]);
+  const [onboardingConfig, setOnboardingConfig] = useState<any>(null);
+  const [configSaveState, setConfigSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [dauMauWindow, setDauMauWindow] = useState<7 | 30 | 60>(30);
 
   const [error, setError] = useState<string | null>(null);
@@ -56,10 +59,14 @@ export default function Dashboard() {
       // configured — 503 otherwise. Treat that as "no data yet", not an error.
       fetch('/api/stats/funnel').then(r => r.ok ? r.json() : null).catch(() => null),
       fetch('/api/stats/retention').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([statsData, agentsData, funnelData, retentionData]) => {
+      fetch('/api/evals/runs?limit=15').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/onboarding-config').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([statsData, agentsData, funnelData, retentionData, evalsData, configData]) => {
       setStats(statsData);
       setAgents(agentsData);
       setFunnel(funnelData);
+      setEvalRuns(evalsData?.runs || []);
+      setOnboardingConfig(configData);
       setRetention(retentionData);
       setError(null);
     }).catch(err => {
@@ -321,6 +328,163 @@ export default function Dashboard() {
                 </p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Onboarding Quality: power-up ask funnel, stuckness, eval runs ── */}
+      {(funnel || evalRuns.length > 0) && (
+        <div className="bg-white border border-[#D9CFC4] rounded-3xl p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-bold text-textMain">Onboarding Quality</h3>
+            <p className="text-xs text-textMuted font-medium">Power-up conversation performance + eval runs</p>
+          </div>
+
+          {/* Tuning knobs: every deployed client picks these up at wizard
+              mount; telemetry + eval reports carry the variant label so the
+              numbers below can be compared per tweak. */}
+          {onboardingConfig && (
+            <div className="mb-8 p-5 bg-backgroundAlt rounded-2xl border border-border">
+              <div className="flex items-end gap-4 flex-wrap">
+                <label className="text-xs font-bold text-textMuted uppercase tracking-wide">
+                  Variant label
+                  <input
+                    value={onboardingConfig.variant || ''}
+                    onChange={e => setOnboardingConfig({ ...onboardingConfig, variant: e.target.value })}
+                    className="block mt-1 px-3 py-2 rounded-lg border border-border bg-white text-sm font-mono text-textMain w-40"
+                  />
+                </label>
+                <label className="text-xs font-bold text-textMuted uppercase tracking-wide">
+                  Ask budget
+                  <input
+                    type="number" min={2} max={8}
+                    value={onboardingConfig.maxAsks ?? 5}
+                    onChange={e => setOnboardingConfig({ ...onboardingConfig, maxAsks: parseInt(e.target.value, 10) })}
+                    className="block mt-1 px-3 py-2 rounded-lg border border-border bg-white text-sm font-mono text-textMain w-20"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium text-textMain pb-2">
+                  <input
+                    type="checkbox"
+                    checked={onboardingConfig.liveAgentEnabled !== false}
+                    onChange={e => setOnboardingConfig({ ...onboardingConfig, liveAgentEnabled: e.target.checked })}
+                  />
+                  Live agent loop
+                </label>
+                <label className="flex items-center gap-2 text-sm font-medium text-textMain pb-2">
+                  <input
+                    type="checkbox"
+                    checked={onboardingConfig.autoAdvanceConfirmations !== false}
+                    onChange={e => setOnboardingConfig({ ...onboardingConfig, autoAdvanceConfirmations: e.target.checked })}
+                  />
+                  Auto-advance confirmations
+                </label>
+                <button
+                  onClick={async () => {
+                    setConfigSaveState('saving');
+                    try {
+                      const res = await fetch('/api/onboarding-config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(onboardingConfig),
+                      });
+                      setConfigSaveState(res.ok ? 'saved' : 'error');
+                    } catch { setConfigSaveState('error'); }
+                    setTimeout(() => setConfigSaveState('idle'), 2500);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold pb-2"
+                >
+                  {configSaveState === 'saving' ? 'Saving…' : configSaveState === 'saved' ? 'Saved ✓' : configSaveState === 'error' ? 'Failed — retry' : 'Save config'}
+                </button>
+              </div>
+              <p className="text-[11px] text-textMuted mt-3">
+                Change the variant label with every tweak — funnel events and eval runs are tagged with it, so the numbers below compare variants directly. Clients pick changes up on next wizard launch.
+              </p>
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            <div>
+              <p className="text-xs font-bold text-textMuted uppercase tracking-wide mb-3">Ask funnel (shown → answered → accepted)</p>
+              {(() => {
+                const asks = funnel?.powerUpAsks || [];
+                if (asks.length === 0) return <p className="text-sm text-textMuted">No power-up data yet.</p>;
+                const askTypes = Array.from(new Set(asks.map((a: any) => a.askType)));
+                return (
+                  <div className="space-y-2">
+                    {askTypes.map((type: any) => {
+                      const shown = asks.find((a: any) => a.askType === type && a.eventType === 'powerup_ask_shown')?.anonCount || 0;
+                      const answered = asks.filter((a: any) => a.askType === type && a.eventType === 'powerup_ask_answered');
+                      const answeredTotal = answered.reduce((s: number, a: any) => s + a.anonCount, 0);
+                      const accepted = answered.filter((a: any) => a.action === 'accept').reduce((s: number, a: any) => s + a.anonCount, 0);
+                      const acceptPct = answeredTotal > 0 ? (accepted / answeredTotal) * 100 : 0;
+                      return (
+                        <div key={type} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F0EAE0]">
+                          <span className="font-medium text-textMain capitalize">{type}</span>
+                          <span className="font-mono text-xs text-textMuted">
+                            {shown} → {answeredTotal}
+                            <span className={`ml-2 font-bold px-1.5 py-0.5 rounded ${acceptPct >= 60 ? 'bg-green-50 text-green-600' : acceptPct >= 30 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>
+                              {acceptPct.toFixed(0)}% yes
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-textMuted uppercase tracking-wide mb-3">Where people stall</p>
+              {(funnel?.stuckSteps || []).length === 0 && (funnel?.backNavigation || []).length === 0 ? (
+                <p className="text-sm text-textMuted">No stall data yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(funnel?.stuckSteps || []).slice(0, 6).map((s: any) => (
+                    <div key={`stuck-${s.stepName}`} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F0EAE0]">
+                      <span className="font-medium text-textMain">{s.stepName} <span className="text-[10px] text-textMuted">idle 90s+</span></span>
+                      <span className="font-mono font-bold text-textMain">{s.anonCount}</span>
+                    </div>
+                  ))}
+                  {(funnel?.backNavigation || []).slice(0, 4).map((b: any) => (
+                    <div key={`back-${b.fromName}`} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F0EAE0]">
+                      <span className="font-medium text-textMain">{b.fromName} <span className="text-[10px] text-textMuted">went back</span></span>
+                      <span className="font-mono font-bold text-textMain">{b.eventCount}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-textMuted uppercase tracking-wide mb-3">Eval runs (powerup script)</p>
+              {evalRuns.length === 0 ? (
+                <p className="text-sm text-textMuted">No eval runs reported yet. Run <code className="text-xs">node scripts/evalPowerUp.mjs --post</code> in canopy.</p>
+              ) : (
+                <div className="space-y-2">
+                  {evalRuns.slice(0, 8).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between text-sm py-1.5 border-b border-[#F0EAE0]">
+                      <span className="font-medium text-textMain">
+                        {new Date(r.runAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[10px] text-textMuted ml-1.5">{r.engine}{r.gitSha ? ` · ${r.gitSha}` : ''}</span>
+                      </span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${r.failed === 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                        {r.passed}/{r.total}
+                      </span>
+                    </div>
+                  ))}
+                  {evalRuns[0]?.results?.some((res: any) => !res.passed) && (
+                    <div className="mt-3 p-3 bg-red-50 rounded-xl text-xs text-red-700 space-y-1">
+                      {evalRuns[0].results.filter((res: any) => !res.passed).slice(0, 5).map((res: any) => (
+                        <div key={res.caseId}><span className="font-bold">{res.caseId}:</span> {res.failures?.[0]}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}

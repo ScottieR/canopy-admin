@@ -8,12 +8,14 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import pg from 'pg';
 import { registerShareRoutes } from './share-routes.js';
+import { registerEvalRoutes } from './eval-routes.js';
 import {
   createAdminAuthMiddleware,
   createRateLimiter,
   isAllowedMeshyAssetUrl,
   sanitizeCanopyBootstrapRequest,
   sanitizeCanopyHelperRequest,
+  sanitizeCanopyVoicePreviewRequest,
   sanitizePublicSettings,
   sanitizeTelemetryProperties,
   sanitizeTelemetryMetrics,
@@ -24,57 +26,40 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ENV_PATH = path.join(__dirname, '.env');
+
+let localEnvContent = '';
+try {
+  if (fs.existsSync(ENV_PATH)) {
+    localEnvContent = fs.readFileSync(ENV_PATH, 'utf8');
+  }
+} catch (e) {
+  console.warn('Could not load .env file:', e);
+}
+
+function readEnvValue(name) {
+  const processValue = process.env[name];
+  if (typeof processValue === 'string' && processValue.trim()) return processValue.trim();
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = localEnvContent.match(new RegExp(`^${escaped}=(.+)$`, 'm'));
+  return match ? match[1].trim().replace(/^["']|["']$/g, '') : '';
+}
 
 // Parse simple .env without heavy dependencies
-let GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const keyMatch = envContent.match(/^GEMINI_API_KEY=(.+)$/m);
-    if (!GEMINI_API_KEY && keyMatch) GEMINI_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
-  }
-} catch (e) {
-  console.warn("Could not load .env file:", e);
-}
-
-let MESHY_API_KEY = process.env.MESHY_API_KEY || '';
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const keyMatch = envContent.match(/^MESHY_API_KEY=(.+)$/m);
-    if (!MESHY_API_KEY && keyMatch) MESHY_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
-  }
-} catch (e) {
-  // Silent
-}
-
-let ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const keyMatch = envContent.match(/^ADMIN_API_KEY=(.+)$/m);
-    if (!ADMIN_API_KEY && keyMatch) ADMIN_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
-  }
-} catch (e) {
-  // Silent
-}
+const GEMINI_API_KEY = readEnvValue('GEMINI_API_KEY');
+const OPENAI_API_KEY = readEnvValue('OPENAI_API_KEY');
+const ELEVENLABS_API_KEY = readEnvValue('ELEVENLABS_API_KEY');
+const MESHY_API_KEY = readEnvValue('MESHY_API_KEY');
+const ADMIN_API_KEY = readEnvValue('ADMIN_API_KEY');
 
 // Canopy-side key for The Keeper (Eddy). Per spec the Keeper always runs on
 // Canopy's infrastructure — never the user's key ("who fixes the fixer").
-let ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const keyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-    if (!ANTHROPIC_API_KEY && keyMatch) ANTHROPIC_API_KEY = keyMatch[1].trim().replace(/^["']|["']$/g, '');
-  }
-} catch (e) {
-  // Silent
-}
+const ANTHROPIC_API_KEY = readEnvValue('ANTHROPIC_API_KEY');
+const ELEVENLABS_DEFAULT_VOICE_ID = readEnvValue('ELEVENLABS_DEFAULT_VOICE_ID');
+
+// Read-only key used solely by `discoverLiveProviderModels()` to call xAI's
+// /v1/models listing. No inference is ever billed to it.
+const XAI_API_KEY = readEnvValue('XAI_API_KEY');
 
 const upload = multer({
   dest: '/tmp/uploads/',
@@ -87,12 +72,7 @@ app.set('trust proxy', 1);
 
 let configuredAssetDir = process.env.CANOPY_ASSET_DIR || '';
 try {
-  const envPath = path.join(__dirname, '.env');
-  if (!configuredAssetDir && fs.existsSync(envPath)) {
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const assetDirMatch = envContent.match(/^CANOPY_ASSET_DIR=(.+)$/m);
-    if (assetDirMatch) configuredAssetDir = assetDirMatch[1].trim().replace(/^["']|["']$/g, '');
-  }
+  if (!configuredAssetDir && localEnvContent) configuredAssetDir = readEnvValue('CANOPY_ASSET_DIR');
 } catch (e) {
   console.warn('Could not load CANOPY_ASSET_DIR from .env:', e);
 }
@@ -114,6 +94,52 @@ const HABITATS_FILE = path.join(DATA_DIR, 'habitats.json');
 const CONNECTORS_FILE = path.join(DATA_DIR, 'connectors.json');
 const RELEASES_FILE = path.join(DATA_DIR, 'releases.json');
 const RELEASES_DIR = path.join(ASSET_DIR, 'releases');
+const OPENAI_TTS_MODEL = 'gpt-4o-mini-tts';
+const GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview';
+const CANOPY_PREVIEW_VOICE_PROFILES = {
+  alloy: {
+    label: 'Harbor',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_HARBOR_ID',
+    openaiVoice: 'alloy',
+    openaiInstructions: 'Speak in a steady, welcoming, easy-to-trust tone.',
+    geminiVoice: 'Kore',
+  },
+  echo: {
+    label: 'Forge',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_FORGE_ID',
+    openaiVoice: 'echo',
+    openaiInstructions: 'Speak with crisp, direct, quietly technical confidence. Keep the delivery focused and grounded.',
+    geminiVoice: 'Enceladus',
+  },
+  fable: {
+    label: 'Quill',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_QUILL_ID',
+    openaiVoice: 'fable',
+    openaiInstructions: 'Speak with warm editorial precision. Sound articulate, thoughtful, and a little expressive without becoming theatrical.',
+    geminiVoice: 'Puck',
+  },
+  nova: {
+    label: 'Atlas',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_ATLAS_ID',
+    openaiVoice: 'nova',
+    openaiInstructions: 'Speak with bright curiosity and clarity. Sound sharp, energetic, and confident without rushing.',
+    geminiVoice: 'Puck',
+  },
+  onyx: {
+    label: 'Marlowe',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_MARLOWE_ID',
+    openaiVoice: 'onyx',
+    openaiInstructions: 'Speak with grounded authority. Sound strategic, calm, and assured.',
+    geminiVoice: 'Kore',
+  },
+  shimmer: {
+    label: 'Lumen',
+    elevenlabsEnv: 'ELEVENLABS_VOICE_LUMEN_ID',
+    openaiVoice: 'shimmer',
+    openaiInstructions: 'Speak with polished reassurance. Sound precise, attentive, and composed.',
+    geminiVoice: 'Enceladus',
+  },
+};
 
 for (const assetSubdirectory of ['agents', 'models', 'accessories', 'releases']) {
   fs.mkdirSync(path.join(ASSET_DIR, assetSubdirectory), { recursive: true });
@@ -274,6 +300,59 @@ app.use('/releases', express.static(RELEASES_DIR));
 registerShareRoutes(app, {
   sharesDir: path.join(__dirname, 'data', 'shares'),
   createRateLimiter,
+});
+
+// ── Onboarding-quality evals: ingestion + Dashboard retrieval ────────────────
+// Admin-key protected (not in PUBLIC_POSTS). See eval-routes.js.
+registerEvalRoutes(app, {
+  evalsDir: path.join(__dirname, 'data', 'evals'),
+  createRateLimiter,
+});
+
+// ── Onboarding config: the admin tuning loop ─────────────────────────────────
+// GET is public (clients fetch at wizard mount; nothing sensitive — a variant
+// label + UX knobs). POST is admin-key gated. Every client telemetry event and
+// eval report carries the variant, so the Dashboard compares tweaks directly.
+const ONBOARDING_CONFIG_PATH = path.join(__dirname, 'data', 'onboarding-config.json');
+const ONBOARDING_CONFIG_DEFAULTS = {
+  variant: 'default',
+  maxAsks: 5,
+  liveAgentEnabled: true,
+  autoAdvanceConfirmations: true,
+  notes: '',
+};
+function sanitizeOnboardingConfigServer(raw) {
+  const cfg = raw && typeof raw === 'object' ? raw : {};
+  const maxAsks = Number(cfg.maxAsks);
+  return {
+    variant: typeof cfg.variant === 'string' && cfg.variant.trim() && /^[a-zA-Z0-9_-]{1,40}$/.test(cfg.variant.trim())
+      ? cfg.variant.trim() : ONBOARDING_CONFIG_DEFAULTS.variant,
+    maxAsks: Number.isFinite(maxAsks) ? Math.min(8, Math.max(2, Math.round(maxAsks))) : ONBOARDING_CONFIG_DEFAULTS.maxAsks,
+    liveAgentEnabled: typeof cfg.liveAgentEnabled === 'boolean' ? cfg.liveAgentEnabled : ONBOARDING_CONFIG_DEFAULTS.liveAgentEnabled,
+    autoAdvanceConfirmations: typeof cfg.autoAdvanceConfirmations === 'boolean' ? cfg.autoAdvanceConfirmations : ONBOARDING_CONFIG_DEFAULTS.autoAdvanceConfirmations,
+    notes: typeof cfg.notes === 'string' ? cfg.notes.slice(0, 500) : '',
+  };
+}
+app.get('/api/onboarding-config', (req, res) => {
+  try {
+    const raw = fs.existsSync(ONBOARDING_CONFIG_PATH)
+      ? JSON.parse(fs.readFileSync(ONBOARDING_CONFIG_PATH, 'utf8'))
+      : ONBOARDING_CONFIG_DEFAULTS;
+    res.json(sanitizeOnboardingConfigServer(raw));
+  } catch {
+    res.json(ONBOARDING_CONFIG_DEFAULTS);
+  }
+});
+app.post('/api/onboarding-config', (req, res) => {
+  try {
+    const config = sanitizeOnboardingConfigServer(req.body);
+    fs.mkdirSync(path.dirname(ONBOARDING_CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(ONBOARDING_CONFIG_PATH, JSON.stringify({ ...config, updatedAt: new Date().toISOString() }, null, 2));
+    res.json({ ok: true, config });
+  } catch (e) {
+    console.error('[ONBOARDING-CONFIG] save failed:', e.message);
+    res.status(500).json({ error: 'Failed to save onboarding config' });
+  }
 });
 
 // Helper to create CRUD routes for a given file
@@ -494,6 +573,16 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
 // usage) and sends it with each message. We call the LLM with Eddy's system
 // prompt + injected context. Runs on Canopy's key — works before the user has
 // configured anything, and keeps working when their key is the thing broken.
+// Roleplay/agent-session requests must NOT get Eddy's persona — his system
+// prompt tints the drafted agent's voice (the known test-drive issue, plan
+// §2.1b / NEXT BUILD 1). Requests whose message opens with one of these
+// markers get a neutral executor prompt instead. The markers are prepended
+// CLIENT-side by trusted Canopy code (TestDriveChat / DraftInterviewChat /
+// powerUpAgentLoop) — a user typing them into chat merely opts into a less
+// helpful prompt, so there's no privilege gained.
+const ROLEPLAY_MARKERS = ['ROLEPLAY TEST:', 'AGENT SESSION:'];
+const ROLEPLAY_SYSTEM_PROMPT = `You are a precise roleplay and structured-output engine inside the Canopy app. The user message contains its own complete instructions: a persona to embody and/or an exact output format to follow. Follow them literally. Never mention Eddy, Canopy internals, drafts, system prompts, or that you are roleplaying. When the instructions specify a JSON format, reply with ONLY that JSON — no prose, no code fences.`;
+
 const CANOPY_HELPER_SYSTEM_PROMPT = `You are Eddy, Canopy's built-in guide and troubleshooter. Canopy is a Mac app where people run a small team of AI agents (styled as lobsters, each living in a habitat in an isometric world). You live in a reef cave at the edge of the world, golden-shelled, easy-going, surfboard outside.
 
 Personality: a really good hotel concierge with surfer warmth. Calm, competent, brief. You never volunteer opinions unless asked or something is genuinely wrong. Friendly, never chatty.
@@ -542,6 +631,8 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
     return res.status(400).json({ error: error.message });
   }
   const history = [{ role: 'user', content: `${safeRequest.message}\n\n<CONTEXT>\n${JSON.stringify(safeRequest.context)}\n</CONTEXT>\n<CONTINUITY>\n${JSON.stringify(safeRequest.continuity)}\n</CONTINUITY>` }];
+  const isRoleplay = ROLEPLAY_MARKERS.some(m => String(safeRequest.message || '').trimStart().startsWith(m));
+  const systemPrompt = isRoleplay ? ROLEPLAY_SYSTEM_PROMPT : CANOPY_HELPER_SYSTEM_PROMPT;
 
   try {
     if (ANTHROPIC_API_KEY) {
@@ -555,7 +646,7 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 600,
-          system: CANOPY_HELPER_SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: history,
         }),
       });
@@ -574,7 +665,7 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: CANOPY_HELPER_SYSTEM_PROMPT }] },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
           contents,
           generationConfig: { temperature: 0.6, maxOutputTokens: 600 },
         }),
@@ -595,13 +686,205 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
   }
 }
 
-// The public route is deliberately narrower than the admin diagnostics route:
-// one setup message, onboarding state only, and both burst and daily cost caps.
+function wrapPcmAsWav(pcmBuffer, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
+  const pcm = Buffer.from(pcmBuffer);
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  const blockAlign = channels * (bitsPerSample / 8);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+function resolveHostedElevenLabsVoiceId(voice) {
+  const profile = CANOPY_PREVIEW_VOICE_PROFILES[voice];
+  if (!profile) return '';
+  return readEnvValue(profile.elevenlabsEnv) || ELEVENLABS_DEFAULT_VOICE_ID || '';
+}
+
+async function synthesizePreviewWithElevenLabs(text, voice) {
+  if (!ELEVENLABS_API_KEY) return null;
+  const profile = CANOPY_PREVIEW_VOICE_PROFILES[voice];
+  const voiceId = resolveHostedElevenLabsVoiceId(voice);
+  if (!profile || !voiceId) return null;
+
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'xi-api-key': ELEVENLABS_API_KEY,
+    },
+    body: JSON.stringify({
+      text,
+      model_id: 'eleven_multilingual_v2',
+      voice_settings: {
+        stability: 0.45,
+        similarity_boost: 0.8,
+        style: 0.2,
+        use_speaker_boost: true,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 240);
+    throw new Error(`ElevenLabs preview failed (${response.status}): ${detail}`);
+  }
+
+  return {
+    audio: Buffer.from(await response.arrayBuffer()),
+    format: 'mp3',
+  };
+}
+
+async function synthesizePreviewWithOpenAI(text, voice) {
+  if (!OPENAI_API_KEY) return null;
+  const profile = CANOPY_PREVIEW_VOICE_PROFILES[voice];
+  if (!profile) return null;
+
+  const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_TTS_MODEL,
+      input: text,
+      voice: profile.openaiVoice,
+      instructions: profile.openaiInstructions,
+      response_format: 'mp3',
+      speed: 1.0,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 240);
+    throw new Error(`OpenAI preview failed (${response.status}): ${detail}`);
+  }
+
+  return {
+    audio: Buffer.from(await response.arrayBuffer()),
+    format: 'mp3',
+  };
+}
+
+async function synthesizePreviewWithGemini(text, voice) {
+  if (!GEMINI_API_KEY) return null;
+  const profile = CANOPY_PREVIEW_VOICE_PROFILES[voice];
+  if (!profile) return null;
+
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-goog-api-key': GEMINI_API_KEY,
+    },
+    body: JSON.stringify({
+      model: GEMINI_TTS_MODEL,
+      input: `${profile.openaiInstructions}\n\n${text}`,
+      response_format: { type: 'audio' },
+      generation_config: {
+        speech_config: [
+          { voice: profile.geminiVoice },
+        ],
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 240);
+    throw new Error(`Gemini preview failed (${response.status}): ${detail}`);
+  }
+
+  const payload = await response.json();
+  const audioBase64 = payload?.output_audio?.data;
+  if (typeof audioBase64 !== 'string' || !audioBase64) {
+    throw new Error('Gemini preview returned no audio data');
+  }
+  const pcm = Buffer.from(audioBase64, 'base64');
+  return {
+    audio: wrapPcmAsWav(pcm),
+    format: 'wav',
+  };
+}
+
+async function tryHostedPreviewProvider(label, loader, failures) {
+  try {
+    return await loader();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    failures.push(`${label}: ${detail}`);
+    console.warn(`Canopy voice preview provider failed (${label}):`, error);
+    return null;
+  }
+}
+
+async function handleHostedVoicePreview(req, res) {
+  let safeRequest;
+  try {
+    safeRequest = sanitizeCanopyVoicePreviewRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const failures = [];
+
+  try {
+    const preview =
+      await tryHostedPreviewProvider('elevenlabs', () => synthesizePreviewWithElevenLabs(safeRequest.text, safeRequest.voice), failures)
+      || await tryHostedPreviewProvider('openai', () => synthesizePreviewWithOpenAI(safeRequest.text, safeRequest.voice), failures)
+      || await tryHostedPreviewProvider('gemini', () => synthesizePreviewWithGemini(safeRequest.text, safeRequest.voice), failures);
+
+    if (!preview) {
+      if (failures.length > 0) {
+        console.error('Canopy voice preview endpoint exhausted all providers:', failures.join(' | '));
+        return res.status(502).json({
+          error: 'canopy_voice_preview_error',
+          detail: failures[0],
+        });
+      }
+      return res.status(503).json({
+        error: 'canopy_voice_preview_unavailable',
+        detail: 'No hosted TTS provider is configured for onboarding voice preview.',
+      });
+    }
+
+    return res.json({
+      audioBase64: preview.audio.toString('base64'),
+      format: preview.format,
+    });
+  } catch (error) {
+    console.error('Canopy voice preview endpoint failure:', error);
+    return res.status(502).json({ error: 'canopy_voice_preview_error' });
+  }
+}
+
+// The public setup routes are deliberately narrower than the admin diagnostics
+// route: one setup message or one short voice sample, onboarding state only,
+// and both burst and daily cost caps.
 app.post(
   '/api/canopy-helper/bootstrap',
   bootstrapBurstRateLimit,
   bootstrapDailyRateLimit,
   (req, res) => handleCanopyHelper(req, res, true),
+);
+app.post(
+  '/api/canopy-helper/voice-preview',
+  bootstrapBurstRateLimit,
+  bootstrapDailyRateLimit,
+  handleHostedVoicePreview,
 );
 app.post(
   ['/api/canopy-helper/chat', '/api/keeper/chat'],
@@ -910,7 +1193,58 @@ async function getFunnelStats() {
       FROM usage_events WHERE event_type = 'companion_paired'
     `)).rows[0];
 
+    // Beat-3 power-up conversation: per-ask-type shown vs answered vs accepted.
+    // The gap between shown and answered is where users stall; the accept rate
+    // per ask type tells us which asks earn a yes. Emitted by PowerUpChat.tsx.
+    const askRows = (await pgPool.query(`
+      SELECT event_type,
+             (properties->>'ask_type') as ask_type,
+             (properties->>'action') as action,
+             COUNT(*) as event_count,
+             COUNT(DISTINCT anon_id) as anon_count
+      FROM usage_events
+      WHERE event_type IN ('powerup_ask_shown', 'powerup_ask_answered')
+      GROUP BY event_type, properties->>'ask_type', properties->>'action'
+    `)).rows;
+
+    // Stuckness: which steps do people stall on (90s of zero interaction)?
+    const stuckRows = (await pgPool.query(`
+      SELECT (properties->>'step_name') as step_name,
+             COUNT(*) as event_count,
+             COUNT(DISTINCT anon_id) as anon_count
+      FROM usage_events
+      WHERE event_type = 'onboarding_stuck'
+      GROUP BY properties->>'step_name'
+      ORDER BY COUNT(*) DESC
+    `)).rows;
+
+    // Backward navigation: "something confused me here" per step.
+    const backRows = (await pgPool.query(`
+      SELECT (properties->>'from_name') as from_name,
+             COUNT(*) as event_count
+      FROM usage_events
+      WHERE event_type = 'onboarding_back'
+      GROUP BY properties->>'from_name'
+      ORDER BY COUNT(*) DESC
+    `)).rows;
+
     return {
+      powerUpAsks: askRows.map(r => ({
+        eventType: r.event_type,
+        askType: r.ask_type || 'unknown',
+        action: r.action || null,
+        eventCount: parseInt(r.event_count, 10) || 0,
+        anonCount: parseInt(r.anon_count, 10) || 0,
+      })),
+      stuckSteps: stuckRows.map(r => ({
+        stepName: r.step_name || 'unknown',
+        eventCount: parseInt(r.event_count, 10) || 0,
+        anonCount: parseInt(r.anon_count, 10) || 0,
+      })),
+      backNavigation: backRows.map(r => ({
+        fromName: r.from_name || 'unknown',
+        eventCount: parseInt(r.event_count, 10) || 0,
+      })),
       activation: ACTIVATION_FUNNEL_ORDER.map(a => ({ ...a, anonCount: activationByType[a.eventType] || 0 })),
       onboardingSteps: stepRows
         .map(r => ({
@@ -1369,6 +1703,239 @@ app.post('/api/usage', (req, res) => {
 // above, which is now the one and only /api/stats handler's primary path.
 // See spec-global-usage-telemetry.md for the full writeup of this bug.
 
+// --- LIVE PROVIDER MODEL DISCOVERY ---
+//
+// Before this existed, "syncing models from providers" was a lie: the catalog below
+// was a hardcoded literal, and the only network call that touched a provider was the
+// Gemini one — which was used ONLY to patch costIn/costOut on models already in the
+// list (`if (canonical)`), so a newly released model could never appear. Every model
+// bump required editing this file and redeploying.
+//
+// Design rules, learned from that failure mode:
+//
+//   1. NEVER let a failed lookup shrink the catalog. If a provider call errors or
+//      times out, that provider's curated entries pass through untouched. A blip in
+//      api.openai.com must not empty the model picker in every desktop client.
+//   2. Curated entries are the spine. Discovery ANNOTATES them (confirming a model is
+//      still live) and APPENDS genuinely new ids. It never reorders or renames, because
+//      the curated names/descriptions/strategies are hand-written and better than
+//      anything we can infer from an id string.
+//   3. New models arrive as status "discovered", not "stable". The desktop shows them,
+//      but nothing is auto-selected as a default until a human promotes it into the
+//      curated list. Discovery should surface options, not silently reroute a fleet.
+const PROVIDER_DISCOVERY_TIMEOUT_MS = 15000;
+
+/** Model ids that are not text/chat completions and must never enter the catalog. */
+const NON_CHAT_MODEL_PATTERN =
+  /embed|embedding|tts|whisper|audio|speech|transcrib|dall-e|image|vision-only|moderation|rerank|realtime|live|robotics|computer-use|aqa|guard/i;
+
+async function fetchJsonWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROVIDER_DISCOVERY_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ask every provider we hold a key for which models are currently live.
+ *
+ * Returns { [providerLabel]: { ok: boolean, bare: Set<string>, meta: Map<string, {displayName}> } }.
+ * `ok: false` means "we learned nothing" — callers must treat that as no-op, NOT as
+ * "this provider has no models".
+ */
+async function discoverLiveProviderModels() {
+  const results = {};
+
+  const record = (label, ok, entries = []) => {
+    const bare = new Set();
+    const meta = new Map();
+    for (const entry of entries) {
+      if (!entry?.id || NON_CHAT_MODEL_PATTERN.test(entry.id)) continue;
+      bare.add(entry.id);
+      meta.set(entry.id, { displayName: entry.displayName || null });
+    }
+    results[label] = { ok, bare, meta };
+    console.log(
+      ok
+        ? `Discovery: ${label} reported ${bare.size} chat model(s).`
+        : `Discovery: ${label} unavailable — curated entries pass through unchanged.`
+    );
+  };
+
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  if (ANTHROPIC_API_KEY) {
+    try {
+      const body = await fetchJsonWithTimeout("https://api.anthropic.com/v1/models?limit=100", {
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+      });
+      record(
+        "Anthropic",
+        true,
+        (body.data || []).map(m => ({ id: m.id, displayName: m.display_name }))
+      );
+    } catch (e) {
+      console.warn("Discovery: Anthropic /v1/models failed:", e.message);
+      record("Anthropic", false);
+    }
+  } else {
+    record("Anthropic", false);
+  }
+
+  // ── OpenAI ─────────────────────────────────────────────────────────────────
+  if (OPENAI_API_KEY) {
+    try {
+      const body = await fetchJsonWithTimeout("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      });
+      // OpenAI returns EVERYTHING on the account — embeddings, tts, moderation,
+      // fine-tunes, dated snapshots. Keep only gpt/o-series roots.
+      const entries = (body.data || [])
+        .map(m => ({ id: m.id }))
+        .filter(m => /^(gpt|o\d)/i.test(m.id))
+        // Drop dated snapshots like gpt-5.6-terra-2026-04-01 — the undated alias is
+        // what we route to, and snapshots would flood the picker.
+        .filter(m => !/-\d{4}-\d{2}-\d{2}$/.test(m.id));
+      record("OpenAI", true, entries);
+    } catch (e) {
+      console.warn("Discovery: OpenAI /v1/models failed:", e.message);
+      record("OpenAI", false);
+    }
+  } else {
+    record("OpenAI", false);
+  }
+
+  // ── xAI ────────────────────────────────────────────────────────────────────
+  if (XAI_API_KEY) {
+    try {
+      const body = await fetchJsonWithTimeout("https://api.x.ai/v1/models", {
+        headers: { Authorization: `Bearer ${XAI_API_KEY}` },
+      });
+      record("xAI", true, (body.data || []).map(m => ({ id: m.id })));
+    } catch (e) {
+      console.warn("Discovery: xAI /v1/models failed:", e.message);
+      record("xAI", false);
+    }
+  } else {
+    record("xAI", false);
+  }
+
+  // ── Google Gemini ──────────────────────────────────────────────────────────
+  if (GEMINI_API_KEY) {
+    try {
+      const body = await fetchJsonWithTimeout(
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        { headers: { "x-goog-api-key": GEMINI_API_KEY } }
+      );
+      const entries = (body.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+        .map(m => ({
+          id: String(m.name || "").replace("models/", ""),
+          displayName: m.displayName,
+        }));
+      record("Google Gemini", true, entries);
+    } catch (e) {
+      console.warn("Discovery: Gemini /v1beta/models failed:", e.message);
+      record("Google Gemini", false);
+    }
+  } else {
+    record("Google Gemini", false);
+  }
+
+  return results;
+}
+
+/** Turn a bare model id into a passable display name: gpt-5.6-terra → "Gpt 5.6 Terra". */
+function humanizeModelId(bare) {
+  return bare
+    .split(/[-_]/)
+    .map(part => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+/**
+ * Reconcile the curated catalog against live provider data.
+ *
+ * Mutates and returns `modelList`. Providers that failed discovery are skipped
+ * entirely (rule 1 above).
+ */
+function reconcileCatalogWithDiscovery(modelList, discovery, mappedPricing, litellmData) {
+  const PREFIX_BY_PROVIDER = {
+    Anthropic: "anthropic",
+    OpenAI: "openai",
+    xAI: "xai",
+    "Google Gemini": "google",
+  };
+
+  let confirmed = 0;
+  let missing = 0;
+  let added = 0;
+
+  for (const [label, result] of Object.entries(discovery)) {
+    if (!result.ok) continue;
+    const prefix = PREFIX_BY_PROVIDER[label];
+    if (!prefix) continue;
+
+    // Annotate curated entries for this provider.
+    for (const model of modelList) {
+      if (model.provider !== label) continue;
+      if (result.bare.has(model.rawVariable)) {
+        model.liveConfirmedAt = new Date().toISOString();
+        confirmed++;
+      } else if (model.status !== "deprecated") {
+        // Present in our catalog, absent from the provider. Flag it — do not delete.
+        // Providers routinely omit aliases from list endpoints, and deleting on a
+        // single disagreement is how a picker empties itself.
+        model.status = "unconfirmed";
+        model.unconfirmedReason = `Not returned by the ${label} models API`;
+        missing++;
+      }
+    }
+
+    // Append models the provider has that we don't.
+    const knownBare = new Set(
+      modelList.filter(m => m.provider === label).map(m => m.rawVariable)
+    );
+    for (const bare of result.bare) {
+      if (knownBare.has(bare)) continue;
+      const fullId = `${prefix}/${bare}`;
+      const priceIn = (litellmData[bare]?.input_cost_per_token || 0) * 1000000;
+      const priceOut = (litellmData[bare]?.output_cost_per_token || 0) * 1000000;
+      if (priceIn || priceOut) mappedPricing[fullId] = { in: priceIn, out: priceOut };
+
+      modelList.push({
+        id: fullId,
+        provider: label,
+        name: result.meta.get(bare)?.displayName || humanizeModelId(bare),
+        description: `Discovered from the ${label} API — not yet reviewed`,
+        costIn: priceIn,
+        costOut: priceOut,
+        // Conservative: an unreviewed model is never a heavy default.
+        strategy: "light",
+        // Deliberately NOT "stable": defaults below only ever pick from curated
+        // entries, so a new release can appear in the picker without silently
+        // becoming the model an entire fleet routes to.
+        status: "discovered",
+        rawVariable: bare,
+        discoveredAt: new Date().toISOString(),
+      });
+      added++;
+    }
+  }
+
+  console.log(
+    `Discovery reconcile: ${confirmed} confirmed, ${missing} unconfirmed, ${added} newly discovered.`
+  );
+  return modelList;
+}
+
 // --- BACKGROUND PRICING & MODELS CRON ---
 async function syncPricingAndModels() {
   console.log("Syncing LLM pricing from LiteLLM and Models from Providers...");
@@ -1385,28 +1952,36 @@ async function syncPricingAndModels() {
       out: (data[bareKey]?.output_cost_per_token || fallbackOut) * 1000000,
     });
 
+    // ⚠️  KEEP THIS LIST IN LOCKSTEP WITH canopy/shared/models.json AND
+    //     canopy/src-tauri/src/model_constants.rs::all_models().
+    // This endpoint overwrites the model picker in every installed client. When it
+    // went stale (July 2026: still serving claude-sonnet-4-6 / gpt-4o era models),
+    // every client's dropdown downgraded and boot-sync rejected the stale IDs,
+    // silently swapping agents to whatever provider had a key. The client now
+    // baseline-merges defensively, but this list must still track current models.
     const mappedPricing = {
-      "anthropic/claude-sonnet-4-6": litellmPrice("claude-sonnet-4-6", 0.000003, 0.000015),
-      "anthropic/claude-haiku-4-5-20251001": litellmPrice("claude-haiku-4-5-20251001", 0.0000008, 0.000004),
-      "anthropic/claude-opus-4-6": litellmPrice("claude-opus-4-6", 0.000015, 0.000075),
-      "anthropic/claude-opus-4-7": litellmPrice("claude-opus-4-7", 0.000005, 0.000025),
-      "openai/gpt-4o": litellmPrice("gpt-4o", 0.0000025, 0.00001),
-      "openai/gpt-4o-mini": litellmPrice("gpt-4o-mini", 0.00000015, 0.0000006),
-      "openai/o4-mini": litellmPrice("o4-mini", 0.0000011, 0.0000044),
-      "xai/grok-beta": litellmPrice("grok-beta", 0.000005, 0.000015),
+      "anthropic/claude-sonnet-5": litellmPrice("claude-sonnet-5", 0.000003, 0.000015),
+      "anthropic/claude-haiku-4-5": litellmPrice("claude-haiku-4-5", 0.000001, 0.000005),
+      "anthropic/claude-opus-5": litellmPrice("claude-opus-5", 0.000005, 0.000025),
+      "anthropic/claude-fable-5": litellmPrice("claude-fable-5", 0.00001, 0.00005),
+      "openai/gpt-5.6-sol": litellmPrice("gpt-5.6-sol", 0.000005, 0.00003),
+      "openai/gpt-5.6-terra": litellmPrice("gpt-5.6-terra", 0.0000025, 0.000015),
+      "openai/gpt-5.6-luna": litellmPrice("gpt-5.6-luna", 0.000001, 0.000006),
+      "xai/grok-4.5": litellmPrice("grok-4.5", 0.000002, 0.000006),
     };
 
     let modelList = [
       // Anthropic
-      { id: "anthropic/claude-sonnet-4-6", provider: "Anthropic", name: "Claude Sonnet 4.6", description: "Fast & highly capable", costIn: mappedPricing["anthropic/claude-sonnet-4-6"].in, costOut: mappedPricing["anthropic/claude-sonnet-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-sonnet-4-6" },
-      { id: "anthropic/claude-haiku-4-5", provider: "Anthropic", name: "Claude Haiku 4.5", description: "Fastest Anthropic model", costIn: mappedPricing["anthropic/claude-haiku-4-5-20251001"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5-20251001"].out, strategy: "light", status: "stable", rawVariable: "claude-haiku-4-5" },
-      { id: "anthropic/claude-opus-4-6", provider: "Anthropic", name: "Claude Opus 4.6", description: "Most capable Anthropic", costIn: mappedPricing["anthropic/claude-opus-4-6"].in, costOut: mappedPricing["anthropic/claude-opus-4-6"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-4-6" },
-      { id: "anthropic/claude-opus-4-7", provider: "Anthropic", name: "Claude Opus 4.7", description: "Flagship Anthropic model", costIn: mappedPricing["anthropic/claude-opus-4-7"].in, costOut: mappedPricing["anthropic/claude-opus-4-7"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-4-7" },
+      { id: "anthropic/claude-sonnet-5", provider: "Anthropic", name: "Claude Sonnet 5", description: "Best balance for most production workloads", costIn: mappedPricing["anthropic/claude-sonnet-5"].in, costOut: mappedPricing["anthropic/claude-sonnet-5"].out, strategy: "heavy", status: "stable", rawVariable: "claude-sonnet-5" },
+      { id: "anthropic/claude-haiku-4-5", provider: "Anthropic", name: "Claude Haiku 4.5", description: "Fastest Anthropic model", costIn: mappedPricing["anthropic/claude-haiku-4-5"].in, costOut: mappedPricing["anthropic/claude-haiku-4-5"].out, strategy: "light", status: "stable", rawVariable: "claude-haiku-4-5" },
+      { id: "anthropic/claude-opus-5", provider: "Anthropic", name: "Claude Opus 5", description: "Advanced model for complex coding and enterprise work", costIn: mappedPricing["anthropic/claude-opus-5"].in, costOut: mappedPricing["anthropic/claude-opus-5"].out, strategy: "heavy", status: "stable", rawVariable: "claude-opus-5" },
+      { id: "anthropic/claude-fable-5", provider: "Anthropic", name: "Claude Fable 5", description: "Highest capability for demanding long-horizon work", costIn: mappedPricing["anthropic/claude-fable-5"].in, costOut: mappedPricing["anthropic/claude-fable-5"].out, strategy: "heavy", status: "stable", rawVariable: "claude-fable-5" },
       // OpenAI
-      { id: "openai/gpt-4o", provider: "OpenAI", name: "GPT-4o", description: "Flagship multimodal", costIn: mappedPricing["openai/gpt-4o"].in, costOut: mappedPricing["openai/gpt-4o"].out, strategy: "heavy", status: "stable", rawVariable: "gpt-4o" },
-      { id: "openai/gpt-4o-mini", provider: "OpenAI", name: "GPT-4o Mini", description: "Fast & affordable", costIn: mappedPricing["openai/gpt-4o-mini"].in, costOut: mappedPricing["openai/gpt-4o-mini"].out, strategy: "light", status: "stable", rawVariable: "gpt-4o-mini" },
-      { id: "openai/o4-mini", provider: "OpenAI", name: "o4-mini", description: "Fast reasoning model", costIn: mappedPricing["openai/o4-mini"].in, costOut: mappedPricing["openai/o4-mini"].out, strategy: "heavy", status: "stable", rawVariable: "o4-mini" },
-      { id: "xai/grok-beta", provider: "xAI", name: "Grok Beta", description: "Real-time web access", costIn: mappedPricing["xai/grok-beta"].in, costOut: mappedPricing["xai/grok-beta"].out, strategy: "heavy", status: "stable", rawVariable: "grok-beta" },
+      { id: "openai/gpt-5.6-sol", provider: "OpenAI", name: "GPT-5.6 Sol", description: "Frontier model for complex professional work", costIn: mappedPricing["openai/gpt-5.6-sol"].in, costOut: mappedPricing["openai/gpt-5.6-sol"].out, strategy: "heavy", status: "stable", rawVariable: "gpt-5.6-sol" },
+      { id: "openai/gpt-5.6-terra", provider: "OpenAI", name: "GPT-5.6 Terra", description: "Balances intelligence and cost", costIn: mappedPricing["openai/gpt-5.6-terra"].in, costOut: mappedPricing["openai/gpt-5.6-terra"].out, strategy: "heavy", status: "stable", rawVariable: "gpt-5.6-terra" },
+      { id: "openai/gpt-5.6-luna", provider: "OpenAI", name: "GPT-5.6 Luna", description: "Optimized for cost-sensitive high-volume work", costIn: mappedPricing["openai/gpt-5.6-luna"].in, costOut: mappedPricing["openai/gpt-5.6-luna"].out, strategy: "light", status: "stable", rawVariable: "gpt-5.6-luna" },
+      // xAI
+      { id: "xai/grok-4.5", provider: "xAI", name: "Grok 4.5", description: "Latest xAI flagship", costIn: mappedPricing["xai/grok-4.5"].in, costOut: mappedPricing["xai/grok-4.5"].out, strategy: "heavy", status: "stable", rawVariable: "grok-4.5" },
     ];
 
     // ── Gemini model list — source of truth: https://ai.google.dev/gemini-api/docs/deprecations ──
@@ -1438,13 +2013,29 @@ async function syncPricingAndModels() {
           "gemini-3.1-flash-live-preview", "gemini-3.1-flash-tts-preview",
           "gemini-3.5-flash", "gemini-3.5-pro",
         ]);
-        // Anything returned by the page that is NOT in knownStable is suspect — add to blocklist.
-        // This catches dated previews like -preview-04-17, -preview-05-06 etc.
-        for (const name of new Set(allMatches)) {
-          if (!knownStable.has(name) && name.startsWith("gemini-")) {
+        // ⚠️  This rule used to be INVERTED: "anything not in `knownStable` is suspect"
+        // meant every genuinely NEW Gemini release was auto-blocklisted the moment it
+        // appeared on the page, and stayed blocked until a human added it to the
+        // hardcoded set above. New models were guilty until proven innocent — the
+        // opposite of what a discovery pipeline should do.
+        //
+        // Block only what the page actually marks as deprecated or shut down. A model
+        // we've never heard of is not evidence of deprecation; live confirmation comes
+        // from `discoverLiveProviderModels()` instead.
+        const DEPRECATION_MARKERS = /(deprecat|shut\s*down|retire|sunset|discontinu)/i;
+        for (const match of deprecatedSection.matchAll(modelPattern)) {
+          const name = match[0].toLowerCase();
+          if (!name.startsWith("gemini-")) continue;
+          if (knownStable.has(name)) continue;
+          // Look at the surrounding text, not the whole document: a model id is
+          // deprecated only if a deprecation word sits near this specific mention.
+          const from = Math.max(0, match.index - 300);
+          const context = deprecatedSection.slice(from, match.index + 300);
+          if (DEPRECATION_MARKERS.test(context)) {
             deprecatedBareNames.add(name);
           }
         }
+        void allMatches;
         console.log(`Deprecations page parsed. Blocking ${deprecatedBareNames.size} deprecated/unknown model IDs.`);
       }
     } catch (e) {
@@ -1523,19 +2114,30 @@ async function syncPricingAndModels() {
       modelList.push({ id: fullId, provider: "Google Gemini", name, description, costIn, costOut, strategy, status, rawVariable: bare });
     }
 
+    // ── Live provider reconciliation ─────────────────────────────────────────
+    // Runs AFTER the curated list is assembled so curated metadata always wins.
+    // Providers that fail here are no-ops, never subtractions.
+    try {
+      const discovery = await discoverLiveProviderModels();
+      reconcileCatalogWithDiscovery(modelList, discovery, mappedPricing, data);
+    } catch (e) {
+      console.warn("Provider discovery failed wholesale — serving curated catalog:", e.message);
+    }
+
     fs.writeFileSync(PRICING_FILE, JSON.stringify(mappedPricing, null, 2), "utf8");
 
     // Defaults: stable 2.5 Flash as the safe default; 2.5 Pro for heavy tasks.
     // (Not 3.x preview — those require LiteLLM container support confirmation first.)
-    const PREFERRED_HEAVY = "anthropic/claude-sonnet-4-6";
-    const PREFERRED_LIGHT = "google/gemini-2.5-flash";
+    // Match canopy/shared/models.json strategies: Sonnet 5 heavy / Haiku 4.5 light.
+    const PREFERRED_HEAVY = "anthropic/claude-sonnet-5";
+    const PREFERRED_LIGHT = "anthropic/claude-haiku-4-5";
     let defaultHeavy = modelList.find(m => m.id === PREFERRED_HEAVY)?.id
       || modelList.find(m => m.id.includes("claude") && m.id.includes("sonnet"))?.id
       || modelList.find(m => m.strategy === "heavy")?.id
       || PREFERRED_HEAVY;
     let defaultLight = modelList.find(m => m.id === PREFERRED_LIGHT)?.id
-      || modelList.find(m => m.id === "google/gemini-2.5-flash-lite")?.id
-      || modelList.find(m => m.provider === "Google Gemini" && m.strategy === "light")?.id
+      || modelList.find(m => m.provider === "Anthropic" && m.strategy === "light")?.id
+      || modelList.find(m => m.strategy === "light")?.id
       || PREFERRED_LIGHT;
 
     const modelStrategies = {
@@ -1923,11 +2525,17 @@ app.post('/api/upload-bulk', upload.array('files'), (req, res) => {
 });
 
 
-// Sync on boot, then every 7 days (weekly). Tests import the app without
-// performing paid/network work or leaving timers behind.
+// Sync on boot, then every 12 hours. Tests import the app without performing
+// paid/network work or leaving timers behind.
+//
+// This was every 7 days, which silently capped how fresh the catalog could ever be:
+// the desktop refreshes from this oracle every 12h (MODEL_REGISTRY_SYNC_INTERVAL in
+// canopy/src-tauri/src/lib.rs), so a weekly server sync meant up to 7 days of the
+// client dutifully re-fetching a stale list. The two intervals now match.
+const MODEL_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000;
 if (process.env.NODE_ENV !== 'test') {
   syncPricingAndModels();
-  setInterval(syncPricingAndModels, 7 * 24 * 60 * 60 * 1000);
+  setInterval(syncPricingAndModels, MODEL_SYNC_INTERVAL_MS);
 }
 
 app.use((error, req, res, next) => {

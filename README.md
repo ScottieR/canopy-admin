@@ -15,7 +15,7 @@ Public unauthenticated routes are deliberately narrow:
 - device-token-authenticated publish/share operations;
 - a host-allowlisted image proxy.
 
-All mutation, studio-generation, connector-generation, model-sync, release-management, and general server-funded LLM routes require `X-Admin-Key`. The only public inference endpoint is `/api/canopy-helper/bootstrap`, which accepts one current first-run setup request, strips all non-onboarding context, and has burst and daily IP limits. The desktop does not possess the admin key and switches Eddy to the user's provider as soon as a provider credential is available.
+All mutation, studio-generation, connector-generation, model-sync, release-management, and general server-funded LLM routes require `X-Admin-Key`. The public inference surface is intentionally tiny: `/api/canopy-helper/bootstrap` for one current first-run setup request and `/api/canopy-helper/voice-preview` for one short onboarding voice sample. Both strip non-onboarding context and carry burst and daily IP limits. The desktop does not possess the admin key and switches Eddy to the user's provider as soon as a provider credential is available.
 
 Secrets are loaded from environment variables in production and from an ignored, mode-`0600` `.env` file for local development. Never commit a populated environment file.
 
@@ -33,6 +33,15 @@ Populate only the credentials needed for the feature you are testing:
 ```text
 ADMIN_API_KEY=<long random admin credential>
 GEMINI_API_KEY=<optional studio key>
+OPENAI_API_KEY=<optional hosted voice fallback key>
+ELEVENLABS_API_KEY=<optional premium hosted voice key>
+ELEVENLABS_DEFAULT_VOICE_ID=<optional fallback ElevenLabs voice id>
+ELEVENLABS_VOICE_HARBOR_ID=<optional Harbor profile voice id>
+ELEVENLABS_VOICE_FORGE_ID=<optional Forge profile voice id>
+ELEVENLABS_VOICE_QUILL_ID=<optional Quill profile voice id>
+ELEVENLABS_VOICE_ATLAS_ID=<optional Atlas profile voice id>
+ELEVENLABS_VOICE_MARLOWE_ID=<optional Marlowe profile voice id>
+ELEVENLABS_VOICE_LUMEN_ID=<optional Lumen profile voice id>
 ANTHROPIC_API_KEY=<optional internal helper key>
 MESHY_API_KEY=<optional asset-generation key>
 CANOPY_ASSET_DIR=<optional absolute path to the server-side raster/GLB corpus>
