@@ -1,5 +1,5 @@
 {
-  "latest": "0.2.0",
+  "latest": "0.3.0",
   "releases": [
     {
       "version": "0.2.0",
@@ -13,6 +13,21 @@
         "darwin-x86_64": {
           "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbC9hT3cvSXF3Ni9nWlFtaWRMSnBOdnMwOVB5akxwdDhQcGwrM2kzOWRJdHRydzhUQUVsUXhuZ1dHbktsaFY3d3l4a2xYeEQ0bVB5TlRwRkJObC9HYjlZbDlSbDd1dndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MTkwMDU2CWZpbGU6Q2Fub3B5LmFwcC50YXIuZ3oKTTFaV2Y4am9BMjZPaTBQSDY4TUdwWEJpc25hQmtGZU9KTTQrZEUrbExHckp2elBRNkRoUEpkOE55U25XN1U2Z1R6cTVKYnhmYWpGbjV6RWJXcjhXQWc9PQo=",
           "url": "https://github.com/ScottieR/canopy/releases/download/v0.2.0/Canopy_0.2.0_universal.app.tar.gz"
+        }
+      }
+    },
+    {
+      "version": "0.3.0",
+      "notes": "Canopy 0.3.0",
+      "pub_date": "2026-08-11T22:32:07.485Z",
+      "platforms": {
+        "darwin-aarch64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbC9hT3cvSXF3NnhPZTNTMmlXMFM1NDZYbHh5TURSeVJOd1hxVElndlFpUncrYjJjdU9Md0ZNUnFueDJMcDFNc2NMeDBJWVczd2VTb1dteW9aMkRNUFYwNmplUDhoUkE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2NDg3NTExCWZpbGU6Q2Fub3B5LmFwcC50YXIuZ3oKVVV2N0dzOXBsdGsrdWhUVXc4RDFsaVRJaDJNUUVxQ3Y1YnFJQ0JBY3lVb3p5di8yRWFZenIrRk84TmtNSUs3MHRrY2xyQ1NsQWx4L1NXNVZBNTRVQmc9PQo=",
+          "url": "https://github.com/ScottieR/canopy/releases/download/v0.3.0/Canopy_0.3.0_universal.app.tar.gz"
+        },
+        "darwin-x86_64": {
+          "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTbC9hT3cvSXF3NnhPZTNTMmlXMFM1NDZYbHh5TURSeVJOd1hxVElndlFpUncrYjJjdU9Md0ZNUnFueDJMcDFNc2NMeDBJWVczd2VTb1dteW9aMkRNUFYwNmplUDhoUkE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2NDg3NTExCWZpbGU6Q2Fub3B5LmFwcC50YXIuZ3oKVVV2N0dzOXBsdGsrdWhUVXc4RDFsaVRJaDJNUUVxQ3Y1YnFJQ0JBY3lVb3p5di8yRWFZenIrRk84TmtNSUs3MHRrY2xyQ1NsQWx4L1NXNVZBNTRVQmc9PQo=",
+          "url": "https://github.com/ScottieR/canopy/releases/download/v0.3.0/Canopy_0.3.0_universal.app.tar.gz"
         }
       }
     }
