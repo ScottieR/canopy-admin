@@ -95,10 +95,6 @@
     "in": 0.5,
     "out": 1.5
   },
-  "openai/gpt-3.5-turbo-16k": {
-    "in": 3,
-    "out": 4
-  },
   "openai/gpt-3.5-turbo-instruct": {
     "in": 1.5,
     "out": 2
@@ -255,21 +251,9 @@
     "in": 30,
     "out": 180
   },
-  "google/gemini-2.0-flash": {
-    "in": 0.09999999999999999,
-    "out": 0.39999999999999997
-  },
-  "google/gemini-2.0-flash-001": {
-    "in": 0.15,
-    "out": 0.6
-  },
-  "google/gemini-2.0-flash-lite-001": {
-    "in": 0.075,
-    "out": 0.3
-  },
-  "google/gemini-2.0-flash-lite": {
-    "in": 0.075,
-    "out": 0.3
+  "openai/gpt-3.5-turbo-16k": {
+    "in": 3,
+    "out": 4
   },
   "google/gemini-flash-latest": {
     "in": 0.3,
@@ -282,10 +266,6 @@
   "google/gemini-pro-latest": {
     "in": 1.25,
     "out": 10
-  },
-  "google/gemini-3-pro-preview": {
-    "in": 2,
-    "out": 12
   },
   "google/gemini-3.1-pro-preview-customtools": {
     "in": 2,
