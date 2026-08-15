@@ -295,6 +295,39 @@ app.use('/accessories', express.static(path.join(ASSET_DIR, 'accessories')));
 // them by `/releases/<filename>` in `releases.json`.
 app.use('/releases', express.static(RELEASES_DIR));
 
+// ── GCS Proxy for assets ──────────────────────────────────────────────────────
+// Proxy to Google Cloud Storage for assets not found locally.
+// This allows the Tauri app to use localhost:3001 for all assets.
+const GCS_BASE_URL = 'https://storage.googleapis.com/canopy-admin-server-assets';
+app.use(['/models', '/accessories', '/agents'], async (req, res, next) => {
+  // Check if the file exists locally
+  const localPath = path.join(ASSET_DIR, req.path);
+  if (fs.existsSync(localPath) && fs.statSync(localPath).isFile()) {
+    return next(); // Let express.static handle it
+  }
+
+  // If not found locally, try to proxy from GCS
+  try {
+    const gcsUrl = `${GCS_BASE_URL}${req.path}`;
+    const response = await fetch(gcsUrl);
+    if (!response.ok) {
+      return res.status(response.status).send(`Asset not found: ${req.path}`);
+    }
+
+    // Set appropriate headers
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    // Stream the response
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (error) {
+    console.error(`Failed to proxy asset from GCS: ${req.path}`, error.message);
+    res.status(502).send(`Failed to fetch asset: ${error.message}`);
+  }
+});
+
 // ── Publish & Share (Workstream E): static hosting for Canopy mini-apps ──────
 // Device-token auth inside the routes; /share/:id viewer is public by design.
 registerShareRoutes(app, {
