@@ -95,6 +95,10 @@
     "in": 0.5,
     "out": 1.5
   },
+  "openai/gpt-3.5-turbo-16k": {
+    "in": 3,
+    "out": 4
+  },
   "openai/gpt-3.5-turbo-instruct": {
     "in": 1.5,
     "out": 2
@@ -250,10 +254,6 @@
   "openai/gpt-5.5-pro": {
     "in": 30,
     "out": 180
-  },
-  "openai/gpt-3.5-turbo-16k": {
-    "in": 3,
-    "out": 4
   },
   "google/gemini-flash-latest": {
     "in": 0.3,
