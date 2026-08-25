@@ -11,7 +11,7 @@
     "server": "node server.js",
     "build:connect-widget": "node scripts/build-connect-widget.mjs",
     "build": "npm run build:connect-widget && vite build",
-    "test": "node --test server-security.test.js server.integration.test.js share-routes.test.js connections-routes.test.js",
+    "test": "node --test server-security.test.js server.integration.test.js share-routes.test.js connections-routes.test.js connect-widget.test.js",
     "lint": "eslint src vite.config.ts",
     "preview": "vite preview"
   },
