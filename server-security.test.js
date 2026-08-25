@@ -28,6 +28,18 @@ test('admin auth has a narrow public surface', () => {
   assert.equal(isPublicApiRequest('GET', '/api/stats'), false);
   assert.equal(isPublicApiRequest('GET', '/api/meshy-check/task'), false);
   assert.equal(isPublicApiRequest('POST', '/api/connectors'), false);
+
+  // Web-hosted connection token capture — no admin key exists for the desktop
+  // app or an anonymous /connect/:token visitor to present.
+  assert.equal(isPublicApiRequest('GET', '/api/connections/pending'), true);
+  assert.equal(isPublicApiRequest('POST', '/api/connections/pending'), true);
+  assert.equal(
+    isPublicApiRequest('POST', '/api/connections/complete/5a1e1e0a-0000-4000-8000-000000000000'),
+    true,
+  );
+  assert.equal(isPublicApiRequest('DELETE', '/api/connections/pending'), false);
+  assert.equal(isPublicApiRequest('GET', '/api/connections/complete/anything'), false);
+  assert.equal(isPublicApiRequest('POST', '/api/connections/complete/'), false);
 });
 
 test('public Eddy bootstrap accepts onboarding state only and drops every extra field', () => {

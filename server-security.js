@@ -13,6 +13,10 @@ const PUBLIC_JSON_GETS = new Set([
   '/api/accessories',
   '/api/habitats',
   '/api/proxy-image',
+  // Polled by the Canopy desktop app every 5s (see connections-routes.js) — it
+  // has no admin key to present. Returns ciphertext only, safe to expose;
+  // agent_id is validated and this is rate-limited like every other public route.
+  '/api/connections/pending',
 ]);
 
 const PUBLIC_POSTS = new Set([
@@ -28,6 +32,10 @@ const PUBLIC_POSTS = new Set([
   // handlers themselves — the admin key is not required (or held) by clients.
   '/api/share/publish',
   '/api/share/revoke',
+  // Registered by the Canopy desktop app to mint a capture link — same
+  // no-admin-key posture as /api/share/publish. Abuse only creates junk rows
+  // for a random agentId that nobody will ever visit/complete.
+  '/api/connections/pending',
 ]);
 
 export function isPublicApiRequest(method, pathname) {
@@ -35,7 +43,13 @@ export function isPublicApiRequest(method, pathname) {
   if (method === 'GET') {
     return PUBLIC_JSON_GETS.has(normalized) || /^\/api\/updates\/[^/]+\/[^/]+$/.test(normalized);
   }
-  return method === 'POST' && PUBLIC_POSTS.has(normalized);
+  if (method === 'POST') {
+    // Submitted by an anonymous end user's browser from the /connect/:token
+    // page — the token itself (UUID v4, single-use, 15-min TTL) is the
+    // credential; there is no admin key for a random web visitor to hold.
+    return PUBLIC_POSTS.has(normalized) || /^\/api\/connections\/complete\/[^/]+$/.test(normalized);
+  }
+  return false;
 }
 
 export function constantTimeSecretEqual(presented, expected) {
