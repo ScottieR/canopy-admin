@@ -10,7 +10,7 @@
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "claude-sonnet-5",
-      "liveConfirmedAt": "2026-08-07T11:01:54.269Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.906Z"
     },
     {
       "id": "anthropic/claude-haiku-4-5",
@@ -34,7 +34,7 @@
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "claude-opus-5",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-fable-5",
@@ -46,19 +46,19 @@
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "claude-fable-5",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5.6-sol",
       "provider": "OpenAI",
       "name": "GPT-5.6 Sol",
       "description": "Frontier model for complex professional work",
-      "costIn": 5,
-      "costOut": 30,
+      "costIn": 4,
+      "costOut": 20,
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "gpt-5.6-sol",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5.6-terra",
@@ -70,7 +70,7 @@
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "gpt-5.6-terra",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5.6-luna",
@@ -82,7 +82,7 @@
       "strategy": "light",
       "status": "stable",
       "rawVariable": "gpt-5.6-luna",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "xai/grok-4.5",
@@ -105,7 +105,7 @@
       "strategy": "light",
       "status": "stable",
       "rawVariable": "gemini-3.5-flash",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.5-pro",
@@ -129,7 +129,7 @@
       "strategy": "light",
       "status": "preview",
       "rawVariable": "gemini-3-flash-preview",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.1-flash-lite-preview",
@@ -141,7 +141,7 @@
       "strategy": "light",
       "status": "preview",
       "rawVariable": "gemini-3.1-flash-lite-preview",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.1-pro-preview",
@@ -153,7 +153,7 @@
       "strategy": "heavy",
       "status": "preview",
       "rawVariable": "gemini-3.1-pro-preview",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-2.5-flash",
@@ -165,7 +165,7 @@
       "strategy": "light",
       "status": "stable",
       "rawVariable": "gemini-2.5-flash",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-2.5-flash-lite",
@@ -177,7 +177,7 @@
       "strategy": "light",
       "status": "stable",
       "rawVariable": "gemini-2.5-flash-lite",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-2.5-pro",
@@ -189,7 +189,7 @@
       "strategy": "heavy",
       "status": "stable",
       "rawVariable": "gemini-2.5-pro",
-      "liveConfirmedAt": "2026-08-07T11:01:54.270Z"
+      "liveConfirmedAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "anthropic/claude-opus-4-8",
@@ -201,7 +201,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-opus-4-8",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-opus-4-7",
@@ -213,7 +213,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-opus-4-7",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-sonnet-4-6",
@@ -225,7 +225,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-sonnet-4-6",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-opus-4-6",
@@ -237,7 +237,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-opus-4-6",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-opus-4-5-20251101",
@@ -249,7 +249,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-opus-4-5-20251101",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-haiku-4-5-20251001",
@@ -261,7 +261,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-haiku-4-5-20251001",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "anthropic/claude-sonnet-4-5-20250929",
@@ -273,7 +273,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "claude-sonnet-4-5-20250929",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-3.5-turbo",
@@ -285,7 +285,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-3.5-turbo-instruct",
@@ -297,7 +297,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo-instruct",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-3.5-turbo-instruct-0914",
@@ -309,7 +309,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo-instruct-0914",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-3.5-turbo-1106",
@@ -321,7 +321,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo-1106",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-3.5-turbo-0125",
@@ -333,7 +333,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo-0125",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4o",
@@ -345,7 +345,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4o",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4o-mini",
@@ -357,7 +357,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4o-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/o1",
@@ -369,7 +369,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "o1",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/o3-mini",
@@ -381,7 +381,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "o3-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4o-mini-search-preview",
@@ -393,7 +393,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4o-mini-search-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/o3",
@@ -405,7 +405,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "o3",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/o4-mini",
@@ -417,7 +417,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "o4-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4.1",
@@ -429,7 +429,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4.1",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4.1-mini",
@@ -441,7 +441,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4.1-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-4.1-nano",
@@ -453,7 +453,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4.1-nano",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-chat-latest",
@@ -465,7 +465,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-chat-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5",
@@ -477,7 +477,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-mini",
@@ -489,7 +489,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-nano",
@@ -501,7 +501,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-nano",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-codex",
@@ -513,7 +513,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-codex",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-pro",
@@ -525,7 +525,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-pro",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.909Z"
     },
     {
       "id": "openai/gpt-5-search-api",
@@ -537,7 +537,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5-search-api",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.1-chat-latest",
@@ -549,7 +549,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.1-chat-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.1",
@@ -561,7 +561,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.1",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.1-codex",
@@ -573,7 +573,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.1-codex",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.1-codex-mini",
@@ -585,7 +585,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.1-codex-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.1-codex-max",
@@ -597,7 +597,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.1-codex-max",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.2",
@@ -609,7 +609,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.2",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.2-pro",
@@ -621,7 +621,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.2-pro",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.2-chat-latest",
@@ -633,7 +633,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.2-chat-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.2-codex",
@@ -645,7 +645,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.2-codex",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.3-codex",
@@ -657,7 +657,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.3-codex",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-4o-search-preview",
@@ -669,7 +669,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-4o-search-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.3-chat-latest",
@@ -681,7 +681,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.3-chat-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.4-pro",
@@ -693,7 +693,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.4-pro",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.4",
@@ -705,7 +705,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.4",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.4-nano",
@@ -717,7 +717,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.4-nano",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.4-mini",
@@ -729,7 +729,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.4-mini",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.5",
@@ -741,7 +741,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.5",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-5.5-pro",
@@ -753,7 +753,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-5.5-pro",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "openai/gpt-3.5-turbo-16k",
@@ -765,55 +765,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gpt-3.5-turbo-16k",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
-    },
-    {
-      "id": "google/gemini-2.0-flash",
-      "provider": "Google Gemini",
-      "name": "Gemini 2.0 Flash",
-      "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 0.09999999999999999,
-      "costOut": 0.39999999999999997,
-      "strategy": "light",
-      "status": "discovered",
-      "rawVariable": "gemini-2.0-flash",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
-    },
-    {
-      "id": "google/gemini-2.0-flash-001",
-      "provider": "Google Gemini",
-      "name": "Gemini 2.0 Flash 001",
-      "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 0.15,
-      "costOut": 0.6,
-      "strategy": "light",
-      "status": "discovered",
-      "rawVariable": "gemini-2.0-flash-001",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
-    },
-    {
-      "id": "google/gemini-2.0-flash-lite-001",
-      "provider": "Google Gemini",
-      "name": "Gemini 2.0 Flash-Lite 001",
-      "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 0.075,
-      "costOut": 0.3,
-      "strategy": "light",
-      "status": "discovered",
-      "rawVariable": "gemini-2.0-flash-lite-001",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
-    },
-    {
-      "id": "google/gemini-2.0-flash-lite",
-      "provider": "Google Gemini",
-      "name": "Gemini 2.0 Flash-Lite",
-      "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 0.075,
-      "costOut": 0.3,
-      "strategy": "light",
-      "status": "discovered",
-      "rawVariable": "gemini-2.0-flash-lite",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemma-4-26b-a4b-it",
@@ -825,7 +777,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemma-4-26b-a4b-it",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemma-4-31b-it",
@@ -837,7 +789,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemma-4-31b-it",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-flash-latest",
@@ -849,7 +801,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-flash-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-flash-lite-latest",
@@ -861,7 +813,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-flash-lite-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-pro-latest",
@@ -873,19 +825,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-pro-latest",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
-    },
-    {
-      "id": "google/gemini-3-pro-preview",
-      "provider": "Google Gemini",
-      "name": "Gemini 3 Pro Preview",
-      "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 2,
-      "costOut": 12,
-      "strategy": "light",
-      "status": "discovered",
-      "rawVariable": "gemini-3-pro-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.1-pro-preview-customtools",
@@ -897,7 +837,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-3.1-pro-preview-customtools",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.1-flash-lite",
@@ -909,7 +849,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-3.1-flash-lite",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/nano-banana-pro-preview",
@@ -921,7 +861,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "nano-banana-pro-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.5-flash-lite",
@@ -933,7 +873,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-3.5-flash-lite",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-omni-flash-preview",
@@ -945,19 +885,31 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-omni-flash-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/gemini-3.6-flash",
       "provider": "Google Gemini",
       "name": "Gemini 3.6 Flash",
       "description": "Discovered from the Google Gemini API — not yet reviewed",
-      "costIn": 1.5,
-      "costOut": 7.5,
+      "costIn": 0.75,
+      "costOut": 3.75,
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "gemini-3.6-flash",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
+    },
+    {
+      "id": "google/gemini-3.7-flash",
+      "provider": "Google Gemini",
+      "name": "Gemini 3.7 Flash",
+      "description": "Discovered from the Google Gemini API — not yet reviewed",
+      "costIn": 0.75,
+      "costOut": 3.75,
+      "strategy": "light",
+      "status": "discovered",
+      "rawVariable": "gemini-3.7-flash",
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/lyria-3-clip-preview",
@@ -969,7 +921,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "lyria-3-clip-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/lyria-3-pro-preview",
@@ -981,7 +933,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "lyria-3-pro-preview",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/antigravity-preview-05-2026",
@@ -993,7 +945,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "antigravity-preview-05-2026",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/deep-research-max-preview-04-2026",
@@ -1005,7 +957,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "deep-research-max-preview-04-2026",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/deep-research-preview-04-2026",
@@ -1017,7 +969,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "deep-research-preview-04-2026",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     },
     {
       "id": "google/deep-research-pro-preview-12-2025",
@@ -1029,7 +981,7 @@
       "strategy": "light",
       "status": "discovered",
       "rawVariable": "deep-research-pro-preview-12-2025",
-      "discoveredAt": "2026-08-07T11:01:54.270Z"
+      "discoveredAt": "2026-08-25T23:06:03.910Z"
     }
   ],
   "strategies": {
