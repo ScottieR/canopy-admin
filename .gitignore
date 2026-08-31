@@ -32,3 +32,8 @@ dist-ssr
 # than committed. Keep only the directory contract documentation in Git.
 shared/public/*
 !shared/public/README.md
+
+# Built by `npm run build:connect-widget` (scripts/build-connect-widget.mjs) from
+# src/connect-widget/main.ts — generated, not source. connections-routes.js
+# serves it directly from public/, and returns a clear error if it's missing.
+public/connect-widget.js

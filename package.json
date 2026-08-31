@@ -9,12 +9,16 @@
   "scripts": {
     "dev": "vite",
     "server": "node server.js",
-    "build": "vite build",
-    "test": "node --test server-security.test.js server.integration.test.js share-routes.test.js",
+    "build:connect-widget": "node scripts/build-connect-widget.mjs",
+    "build": "npm run build:connect-widget && vite build",
+    "test": "node --test server-security.test.js server.integration.test.js share-routes.test.js connections-routes.test.js connect-widget.test.js",
     "lint": "eslint src vite.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@noble/ciphers": "^2.3.0",
+    "@noble/curves": "^2.3.0",
+    "@noble/hashes": "^2.3.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.0",
     "better-sqlite3": "^12.9.0",
@@ -39,6 +43,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.5.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",

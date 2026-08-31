@@ -9,6 +9,7 @@ import multer from 'multer';
 import pg from 'pg';
 import { registerShareRoutes } from './share-routes.js';
 import { registerEvalRoutes } from './eval-routes.js';
+import { registerConnectionRoutes, createPostgresConnectionsStore } from './connections-routes.js';
 import {
   createAdminAuthMiddleware,
   createRateLimiter,
@@ -210,8 +211,37 @@ if (pgPool) {
     -- once the table exists, so the column needs its own guarded add).
     ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS properties JSONB;
   `).catch(e => console.error("[TELEMETRY] Failed to ensure usage_events table:", e.message));
+
+  // Web-hosted connection token capture (Slack -> /connect/:token -> Canopy
+  // vault). See canopy/WEB_CONNECTIONS.md and connections-routes.js. Same
+  // pgPool as usage_events above — this needs a shared store (not per-instance
+  // local files) because a single capture spans requests that can each land on
+  // a different Cloud Run instance. Readable source of truth:
+  // migrations/002_pending_connections.sql.
+  pgPool.query(`
+    CREATE TABLE IF NOT EXISTS pending_connections (
+      token                 TEXT PRIMARY KEY,
+      agent_id              TEXT NOT NULL,
+      provider_name         TEXT NOT NULL,
+      secret_name           TEXT NOT NULL,
+      token_url             TEXT,
+      instructions          TEXT,
+      placeholder           TEXT NOT NULL,
+      public_key            TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'pending',
+      ciphertext            TEXT,
+      nonce                 TEXT,
+      ephemeral_public_key  TEXT,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at            TIMESTAMPTZ NOT NULL,
+      completed_at          TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS pending_connections_agent_status_idx ON pending_connections (agent_id, status);
+    CREATE INDEX IF NOT EXISTS pending_connections_expires_idx ON pending_connections (expires_at);
+  `).catch(e => console.error("[CONNECTIONS] Failed to ensure pending_connections table:", e.message));
 } else {
   console.warn("[TELEMETRY] No Postgres connection configured (set INSTANCE_CONNECTION_NAME+DB_USER+DB_PASS+DB_NAME, or DATABASE_URL) — /api/telemetry/event will accept but not persist events, and global usage stats will be empty. See spec-global-usage-telemetry.md.");
+  console.warn("[CONNECTIONS] No Postgres connection configured — the web-hosted connection token capture flow (POST/GET /api/connections/*, GET /connect/:token) will respond 503 until DATABASE_URL or INSTANCE_CONNECTION_NAME+DB_USER+DB_PASS+DB_NAME is set. See canopy/WEB_CONNECTIONS.md.");
 }
 
 // Make sure the on-disk shape exists before any request races against it.
@@ -333,6 +363,15 @@ app.use(['/models', '/accessories', '/agents'], async (req, res, next) => {
 registerShareRoutes(app, {
   sharesDir: path.join(__dirname, 'data', 'shares'),
   createRateLimiter,
+});
+
+// ── Web-hosted connection token capture (Slack -> /connect/:token -> vault) ──
+// Public by design (see connections-routes.js's module doc comment for why);
+// store is null (routes respond 503) until Postgres is configured above.
+registerConnectionRoutes(app, {
+  store: pgPool ? createPostgresConnectionsStore(pgPool) : null,
+  createRateLimiter,
+  publicDir: path.join(__dirname, 'public'),
 });
 
 // ── Onboarding-quality evals: ingestion + Dashboard retrieval ────────────────
