@@ -78,9 +78,12 @@ function setStatus(el: HTMLElement, message: string, kind: 'idle' | 'error' | 's
 
 function main() {
   const config = readConfig();
-  const root = document.getElementById('connect-root');
   const statusEl = document.getElementById('status-message');
-  if (!root || !statusEl) return;
+  // The page is server-rendered by renderConnectPage (connections-routes.js), so
+  // every element below already exists in the DOM — there is nothing to mount.
+  // status-message is the sentinel that we're on the connect page; the form
+  // controls are re-checked before the submit handler is wired up.
+  if (!statusEl) return;
 
   if (!config) {
     setStatus(statusEl, 'This link is malformed. Ask the agent to send a new one.', 'error');
