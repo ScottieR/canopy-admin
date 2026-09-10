@@ -135,6 +135,36 @@ test('renderConnectPage embeds config as an inert JSON island, never innerHTML',
   assert.ok(!page.includes('<script>alert(1)</script>'));
 });
 
+test('renderConnectPage emits every element id the connect-widget looks up (page↔widget contract)', () => {
+  // The widget is server-rendered onto this page; if it getElementById's an id the
+  // page never emits, main() bails before wiring the submit handler and the Connect
+  // button silently does nothing. Parse the widget's own lookups and require each.
+  const widgetSrc = fs.readFileSync(
+    path.join(import.meta.dirname, 'src/connect-widget/main.ts'),
+    'utf8',
+  );
+  const ids = [...widgetSrc.matchAll(/getElementById\(['"]([^'"]+)['"]\)/g)].map((m) => m[1]);
+  assert.ok(ids.length >= 5, `expected several getElementById lookups, found ${ids.length}`);
+
+  const page = renderConnectPage({
+    token: VALID_TOKEN,
+    providerName: 'Seats.aero',
+    instructions: 'Do the thing.',
+    placeholder: 'sk_...',
+    tokenUrl: 'https://example.com',
+    publicKey: VALID_PUBLIC_KEY,
+    expiresAt: futureIso(60_000),
+  });
+
+  for (const id of ids) {
+    assert.ok(
+      page.includes(`id="${id}"`),
+      `connect-widget calls getElementById('${id}') but renderConnectPage never emits id="${id}" — ` +
+        'the page and widget have drifted and the submit handler will silently never attach',
+    );
+  }
+});
+
 test('renderStatePage escapes its message', () => {
   const page = renderStatePage({ title: 'Expired', message: '<img src=x onerror=alert(1)>' });
   assert.ok(!page.includes('<img src=x onerror=alert(1)>'));
