@@ -12,10 +12,13 @@ Public unauthenticated routes are deliberately narrow:
 
 - read-only desktop catalogs and updater manifests;
 - bounded, opt-in aggregate telemetry;
+- the product analytics collector (`POST /api/e`), which accepts only listed event names with small, flat props from the desktop app's origins, has its own per-IP limit, and always answers 204;
 - device-token-authenticated publish/share operations;
 - a host-allowlisted image proxy.
 
 All mutation, studio-generation, connector-generation, model-sync, release-management, and general server-funded LLM routes require `X-Admin-Key`. The public inference surface is intentionally tiny: `/api/canopy-helper/bootstrap` for one current first-run setup request and `/api/canopy-helper/voice-preview` for one short onboarding voice sample. Both strip non-onboarding context and carry burst and daily IP limits. The desktop does not possess the admin key and switches Eddy to the user's provider as soon as a provider credential is available.
+
+`GET /api/stats` serves two readers. A request with `X-Admin-Key` is the Dashboard's and is handled as before. Any other request is answered by the analytics kit: the full stats for a valid `Authorization: Bearer $STATS_TOKEN`, otherwise a 401 that names only the app slug and kit version.
 
 Secrets are loaded from environment variables in production and from an ignored, mode-`0600` `.env` file for local development. Never commit a populated environment file.
 
@@ -78,6 +81,25 @@ npm audit --audit-level=high
 
 The tests cover the public-route allowlist, constant-time admin authentication, request sanitization, SSRF defenses, telemetry bounding, release URLs, security headers, CORS, retired screen telemetry, and publish/share authorization.
 
+## Usage stats
+
+This server hosts the `app-analytics` kit (v8) for the Canopy desktop app, which has no server of its own. The desktop tracker lives in the `canopy` repo (`src/lib/analytics/`); its README lists the events and what is and isn't sent.
+
+- `analytics-routes.js`: the Express port of the kit's collector (`POST /api/e`) and stats (`GET /api/stats`), and the helpers that record model spend. It loads the kit's TypeScript through `tsx`.
+- `analytics/`: the kit's shared files as every app has them, plus this app's own: `events.ts` (identical to the desktop's copy; `events-parity.test.ts` checks it), `flows.ts` (the "First agent" funnel, six features, activation on `reply_received`) and `server/app-metrics.ts` (personas deployed, connections by type, forum completion, replies).
+- Rows go to `analytics_events` and `ai_usage` in the Postgres named by `ANALYTICS_DATABASE_URL`, the database shared with the maintainer's other apps, under `app = 'canopy'`. That is a different database from this server's own `DATABASE_URL` (telemetry, connections). If only `DATABASE_URL` is set, the kit falls back to it.
+
+Model spend is recorded after every server-funded call: `helper-onboarding` and `helper` (Claude Haiku, Gemini fallback), `voice-preview` (counted, but speech is billed per character and isn't costed), and the admin tools `admin-connector`, `admin-agent-design`, `admin-moderation`, `admin-accessories` (Gemini). Meshy 3D generation is credit-based and not recorded. A model without a list price in `analytics/server/ai-prices.ts` is costed at the highest listed rate and named under `ai.unpricedModels`.
+
+```bash
+npm run stats             # reads STATS_TOKEN (and optionally STATS_URL) from .env.local
+npm run stats -- --json
+npm run spend             # model spend only
+ANALYTICS_TEST_DATABASE_URL=postgres://… npx vitest run analytics --no-file-parallelism   # the SQL tests, against a scratch Postgres
+```
+
+Environment: `ANALYTICS_DATABASE_URL` (pooled Postgres URL), `STATS_TOKEN`, and optionally `SPEND_ALERT_NTFY_TOPIC` or `SPEND_ALERT_WEBHOOK_URL` with `SPEND_ALERT_USD`. Without `ANALYTICS_DATABASE_URL` events are dropped and the stats answer 503; nothing else changes.
+
 ## Deployment
 
 Pushes to `production` run the full desktop/admin regression gate and deploy to Google Cloud Run through GitHub OIDC. Production credentials are read from Google Secret Manager; the workflow never writes them to the repository or build context.
@@ -96,6 +118,8 @@ Required Secret Manager entries are listed in `.github/workflows/deploy.yml`.
 server.js                 Express API and control-plane orchestration
 server-security.js        Pure validation, authentication, and sanitization helpers
 share-routes.js           Device-scoped mini-app publishing
+analytics-routes.js       Product analytics collector, kit stats, model-spend recording
+analytics/                app-analytics kit: event list, flows, stats SQL and tests
 src/                      Internal React administration UI
 shared/                   Runtime catalog data and hosted public assets
 migrations/               Postgres telemetry migrations

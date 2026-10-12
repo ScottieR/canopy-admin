@@ -9,6 +9,7 @@ import multer from 'multer';
 import pg from 'pg';
 import { registerShareRoutes } from './share-routes.js';
 import { registerEvalRoutes } from './eval-routes.js';
+import { registerAnalyticsRoutes, recordAnthropicCall, recordGeminiCall, recordModelCall } from './analytics-routes.js';
 import { registerConnectionRoutes, createPostgresConnectionsStore } from './connections-routes.js';
 import {
   createAdminAuthMiddleware,
@@ -308,6 +309,10 @@ app.use((req, res, next) => {
 // express.json skips bodies that are already parsed.
 app.use('/api/share/publish', express.json({ limit: '3mb', strict: true }));
 app.use(express.json({ limit: '128kb', strict: true }));
+// Product analytics (app-analytics kit): the desktop tracker's collector (POST /api/e) and the kit's
+// stats for scottieryan.com/admin (GET /api/stats with a STATS_TOKEN bearer). Registered ahead of the
+// /api rate limiter and the admin-key middleware; see analytics-routes.js.
+registerAnalyticsRoutes(app, { allowedOrigins });
 app.use('/api', createRateLimiter({ windowMs: 10 * 60_000, max: 600, keyPrefix: 'api' }));
 app.use(createAdminAuthMiddleware(() => ADMIN_API_KEY));
 const generationRateLimit = createRateLimiter({ windowMs: 10 * 60_000, max: 10, keyPrefix: 'generate' });
@@ -502,6 +507,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with this exact s
 
     if (!response.ok) return res.status(500).json({ error: "Gemini API failed" });
     const data = await response.json();
+    await recordGeminiCall('admin-connector', 'gemini-2.5-flash', data, req);
     let textResult = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "{}";
 
     if (textResult.startsWith('\`\`\`')) {
@@ -602,6 +608,7 @@ Output ONLY a raw JSON object (no markdown tags, no backticks) with exactly this
     }
 
     const data = await response.json();
+    await recordGeminiCall('admin-agent-design', 'gemini-3.1-flash-image-preview', data, req);
     let textResult = data.candidates[0].content.parts[0].text.trim();
 
     // Strip possible markdown
@@ -705,6 +712,8 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
   const history = [{ role: 'user', content: `${safeRequest.message}\n\n<CONTEXT>\n${JSON.stringify(safeRequest.context)}\n</CONTEXT>\n<CONTINUITY>\n${JSON.stringify(safeRequest.continuity)}\n</CONTINUITY>` }];
   const isRoleplay = ROLEPLAY_MARKERS.some(m => String(safeRequest.message || '').trimStart().startsWith(m));
   const systemPrompt = isRoleplay ? ROLEPLAY_SYSTEM_PROMPT : CANOPY_HELPER_SYSTEM_PROMPT;
+  // What the call was for, in the kit's AI cost report (analytics/server/ai-usage.ts)
+  const helperFeature = bootstrapOnly ? 'helper-onboarding' : 'helper';
 
   try {
     if (ANTHROPIC_API_KEY) {
@@ -727,6 +736,7 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
         return res.status(502).json({ error: 'canopy_helper_llm_error' });
       }
       const data = await r.json();
+      await recordAnthropicCall(helperFeature, 'claude-haiku-4-5-20251001', data, req);
       const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
       return res.json({ reply });
     }
@@ -747,6 +757,7 @@ async function handleCanopyHelper(req, res, bootstrapOnly = false) {
         return res.status(502).json({ error: 'canopy_helper_llm_error' });
       }
       const data = await r.json();
+      await recordGeminiCall(helperFeature, 'gemini-3.5-flash', data, req);
       const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n').trim() || '';
       return res.json({ reply });
     }
@@ -894,7 +905,8 @@ async function synthesizePreviewWithGemini(text, voice) {
 
 async function tryHostedPreviewProvider(label, loader, failures) {
   try {
-    return await loader();
+    const preview = await loader();
+    return preview ? { ...preview, provider: label } : null;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     failures.push(`${label}: ${detail}`);
@@ -932,6 +944,11 @@ async function handleHostedVoicePreview(req, res) {
         detail: 'No hosted TTS provider is configured for onboarding voice preview.',
       });
     }
+
+    // Speech is billed per character, not per token, and no provider here reports usage: the call is
+    // counted, but its cost isn't metered (the model shows under unpricedModels in the stats).
+    const previewModel = { elevenlabs: 'elevenlabs-tts', openai: OPENAI_TTS_MODEL, gemini: GEMINI_TTS_MODEL }[preview.provider];
+    await recordModelCall('voice-preview', preview.provider, previewModel, req);
 
     return res.json({
       audioBase64: preview.audio.toString('base64'),
@@ -993,6 +1010,7 @@ Reply ONLY with the exact word "NO" if it is safe and appropriate to suggest.`;
 
     if (!response.ok) return res.status(500).json({ error: "Gemini API failed" });
     const data = await response.json();
+    await recordGeminiCall('admin-moderation', 'gemini-2.5-flash', data, req);
     let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
 
     if (result && result.includes("YES")) {
@@ -2254,7 +2272,9 @@ User Request: ${prompt}`;
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: injectedPrompt }] }] })
       });
       if (response.ok) {
-        let textResult = (await response.json()).candidates[0].content.parts[0].text.trim();
+        const data = await response.json();
+        await recordGeminiCall('admin-accessories', 'gemini-3.1-flash-image-preview', data, req);
+        let textResult = data.candidates[0].content.parts[0].text.trim();
         if (textResult.startsWith('\`\`\`')) {
           textResult = textResult.replace(/^\`\`\`(?:json)?/i, '').replace(/\`\`\`$/, '').trim();
         }

@@ -1,0 +1,3 @@
+## Usage analytics
+
+This server hosts the app-analytics kit for the Canopy desktop app (`analytics/`, `analytics-routes.js`; the tracker is in the `canopy` repo under `src/lib/analytics/`). Whenever a feature or flow is added, changed or removed in either repo, update the analytics in the same change: events (`analytics/events.ts`, which must stay identical to `canopy/src/lib/analytics/events.ts`), funnels, key features and activation (`analytics/flows.ts`), this app's own numbers (`analytics/server/app-metrics.ts` and its test), and a `recordAnthropicCall` / `recordGeminiCall` / `recordModelCall` on any new server-funded model API call in `server.js`. Use the `app-analytics` skill ("Keep it current"). Files marked "shared by every app" change only through that skill.
