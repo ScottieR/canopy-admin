@@ -155,3 +155,27 @@ test('unapproved browser origins are rejected', async () => {
   const response = await fetch(`${baseUrl}/api/models`, { headers: { Origin: 'https://evil.example' } });
   assert.equal(response.status, 403);
 });
+
+test('product analytics: the collector always answers 204 and the kit stats sit beside the admin stats', async () => {
+  // Nothing is stored without a database, and tracking never breaks the app
+  const collected = await fetch(`${baseUrl}/api/e`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'tauri://localhost' },
+    body: JSON.stringify({ device: 'nope', events: [] }),
+  });
+  assert.equal(collected.status, 204);
+
+  // Without a token the kit names only the app and its version
+  const anonymous = await fetch(`${baseUrl}/api/stats`);
+  assert.equal(anonymous.status, 401);
+  const named = await anonymous.json();
+  assert.equal(named.app, 'canopy');
+  assert.equal(typeof named.kit, 'number');
+  const wrong = await fetch(`${baseUrl}/api/stats`, { headers: { authorization: 'Bearer wrong' } });
+  assert.equal(wrong.status, 401);
+
+  // A request that presents the admin key is the Dashboard's, and still reaches its own handler
+  const admin = await fetch(`${baseUrl}/api/stats`, { headers: { 'x-admin-key': 'wrong-admin-key' } });
+  assert.equal(admin.status, 401);
+  assert.equal((await admin.json()).kit, undefined);
+});
